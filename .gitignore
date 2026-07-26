@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+
+# PyInstaller
+build/
+*.manifest
+*.spec
+
+# Test files & outputs
+test_output_report.xlsx
+.DS_Store
+.vscode/
+.idea/

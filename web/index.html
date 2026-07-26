@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>엑셀 집합 분석 툴 (클립보드 복사 전용)</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="logo-area">
+                <div class="logo-icon">📋</div>
+                <div>
+                    <h1>Excel Set Analyzer</h1>
+                    <p class="subtitle">엑셀 교집합 · 차집합(A/B) · 대칭차집합 원클릭 클립보드 복사 툴</p>
+                </div>
+            </div>
+            <div class="header-actions">
+                <button id="btn-load-sample" class="btn btn-secondary">
+                    <span>💡 샘플 데이터로 테스트</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Workspace Grid -->
+        <main class="main-content">
+            <!-- Left Sidebar: Controls & File Upload -->
+            <section class="card config-panel">
+                <h2 class="section-title">
+                    <span class="step-num">1</span> 엑셀 데이터 및 비교 컬럼 설정
+                </h2>
+
+                <!-- Dropzone -->
+                <div id="dropzone" class="dropzone">
+                    <input type="file" id="file-input" accept=".xlsx,.xls,.csv" class="file-input">
+                    <div class="dropzone-content">
+                        <div class="upload-icon">📁</div>
+                        <p class="upload-text"><strong>클릭</strong>하여 엑셀 파일 선택 또는 <strong>드래그 & 드롭</strong></p>
+                        <span class="file-hint">지원 파일: .xlsx, .xls, .csv</span>
+                    </div>
+                </div>
+
+                <div id="file-info" class="file-info hidden">
+                    <span class="file-icon">📄</span>
+                    <span id="file-name" class="file-name">filename.xlsx</span>
+                    <button id="btn-change-file" class="btn-text">변경</button>
+                </div>
+
+                <!-- Sheet & Column Selection Form -->
+                <div id="setup-form" class="setup-form disabled">
+                    <div class="form-group">
+                        <label for="sheet-select-a">📄 시트 선택</label>
+                        <select id="sheet-select-a" class="select-control"></select>
+                    </div>
+
+                    <div class="grid-2col">
+                        <div class="form-group">
+                            <label for="col-select-a">🔵 컬럼 A (기준 1)</label>
+                            <select id="col-select-a" class="select-control"></select>
+                        </div>
+                        <div class="form-group">
+                            <label for="col-select-b">🔴 컬럼 B (기준 2)</label>
+                            <select id="col-select-b" class="select-control"></select>
+                        </div>
+                    </div>
+
+                    <!-- Preprocessing Options -->
+                    <div class="options-group">
+                        <label class="group-title">⚙️ 전처리 옵션</label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="opt-trim" checked>
+                            <span>앞뒤 공백 자동 제거 (Trim)</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="opt-case">
+                            <span>대소문자 구분 (Case-Sensitive)</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="opt-drop-empty" checked>
+                            <span>빈 값 / N/A 제외</span>
+                        </label>
+                    </div>
+
+                    <button id="btn-analyze" class="btn btn-primary btn-block">
+                        <span>⚡ 집합 비교 분석 수행</span>
+                    </button>
+                </div>
+            </section>
+
+            <!-- Right Area: Fast Clipboard Results -->
+            <section class="results-panel">
+                <!-- Welcome Empty State -->
+                <div id="empty-state" class="card empty-state">
+                    <div class="empty-icon">📋</div>
+                    <h3>클립보드 즉시 복사 툴</h3>
+                    <p>엑셀 파일을 선택하고 A/B 컬럼을 지정하면<br>교집합, A전용, B전용, 대칭차집합 목록을 클릭 한번으로 클립보드에 복사할 수 있습니다.</p>
+                </div>
+
+                <!-- Analysis Dashboard (Initially Hidden) -->
+                <div id="dashboard-content" class="dashboard-content hidden">
+                    <!-- Quick Stats Summary -->
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-label">🔵 교집합 (A ∩ B)</div>
+                            <div id="stat-intersection" class="stat-value accent-blue">0</div>
+                            <button class="btn-copy-mini" data-type="intersection">📋 복사</button>
+                        </div>
+
+                        <div class="stat-card">
+                            <div class="stat-label">🟡 A 전용 (차집합 A)</div>
+                            <div id="stat-a-only" class="stat-value accent-yellow">0</div>
+                            <button class="btn-copy-mini" data-type="a_only">📋 복사</button>
+                        </div>
+
+                        <div class="stat-card">
+                            <div class="stat-label">🔴 B 전용 (차집합 B)</div>
+                            <div id="stat-b-only" class="stat-value accent-red">0</div>
+                            <button class="btn-copy-mini" data-type="b_only">📋 복사</button>
+                        </div>
+
+                        <div class="stat-card">
+                            <div class="stat-label">🟣 통합 대칭차집합</div>
+                            <div id="stat-sym-diff" class="stat-value accent-purple">0</div>
+                            <button class="btn-copy-mini" data-type="sym_diff">📋 복사</button>
+                        </div>
+                    </div>
+
+                    <!-- Main Clipboard Action Card -->
+                    <div class="card copy-action-card">
+                        <div class="copy-header-text">
+                            <h3 id="current-view-title">🔵 교집합 목록</h3>
+                            <p class="copy-desc">버튼을 누르면 엑셀, 슬랙, 카톡 등에 바로 붙여넣기(Ctrl+V)할 수 있는 형태로 클립보드에 저장됩니다.</p>
+                        </div>
+                        <div class="copy-btn-group">
+                            <button id="btn-copy-values-only" class="btn btn-success">
+                                <span>📋 값 목록만 복사 (1줄에 1개씩)</span>
+                            </button>
+                            <button id="btn-copy-table" class="btn btn-secondary">
+                                <span>📊 엑셀 표 형태 복사 (탭 구분)</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Data Grid Container -->
+                    <div class="card data-grid-card">
+                        <!-- Navigation Tabs -->
+                        <div class="tabs-header">
+                            <div class="tabs">
+                                <button class="tab-btn active" data-tab="intersection">
+                                    🔵 교집합 <span id="badge-intersection" class="tab-badge blue">0</span>
+                                </button>
+                                <button class="tab-btn" data-tab="a_only">
+                                    🟡 A전용(차집합A) <span id="badge-a-only" class="tab-badge yellow">0</span>
+                                </button>
+                                <button class="tab-btn" data-tab="b_only">
+                                    🔴 B전용(차집합B) <span id="badge-b-only" class="tab-badge red">0</span>
+                                </button>
+                                <button class="tab-btn" data-tab="sym_diff">
+                                    🟣 통합 대칭차집합 <span id="badge-sym-diff" class="tab-badge purple">0</span>
+                                </button>
+                                <button class="tab-btn" data-tab="union">
+                                    🟢 합집합(전체) <span id="badge-union" class="tab-badge green">0</span>
+                                </button>
+                            </div>
+
+                            <div class="table-search">
+                                <input type="text" id="search-input" placeholder="🔍 검색..." class="input-control">
+                            </div>
+                        </div>
+
+                        <!-- Data Table -->
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 70px;">번호</th>
+                                        <th>데이터 값 (Value)</th>
+                                        <th style="width: 180px;">구분 (출처)</th>
+                                        <th style="width: 110px;">A컬럼 존재</th>
+                                        <th style="width: 110px;">B컬럼 존재</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="table-body">
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Pagination Footer -->
+                        <div class="table-footer">
+                            <span id="page-info" class="page-info">전체 0개</span>
+                            <div class="pagination">
+                                <button id="btn-prev-page" class="btn-page" disabled>이전</button>
+                                <span id="current-page-num" class="page-num">1</span>
+                                <button id="btn-next-page" class="btn-page" disabled>다음</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast hidden">📋 클립보드에 복사되었습니다! (Ctrl+V로 붙여넣기 하세요)</div>
+
+    <script src="/app.js"></script>
+</body>
+</html>
