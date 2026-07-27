@@ -45,30 +45,18 @@ class SetAnalyzerWidget(QWidget):
         group_a = QGroupBox("1. 데이터 A 붙여넣기 (Ctrl+V)")
         layout_a = QVBoxLayout(group_a)
         self.txt_paste_a = QTextEdit()
-        self.txt_paste_a.setPlaceholderText("엑셀에서 복사(Ctrl+C)한 1번째 데이터를 붙여넣으세요...")
+        self.txt_paste_a.setPlaceholderText("엑셀에서 복사(Ctrl+C)한 1번째 데이터를 붙여넣으세요 (Ctrl+V)...")
         self.txt_paste_a.textChanged.connect(self.run_analysis)
         layout_a.addWidget(self.txt_paste_a)
-
-        btn_box_a = QHBoxLayout()
-        self.btn_read_a = QPushButton("📋 A 클립보드 읽기")
-        self.btn_read_a.clicked.connect(self.read_clip_a)
-        btn_box_a.addWidget(self.btn_read_a)
-        layout_a.addLayout(btn_box_a)
         left_layout.addWidget(group_a)
 
         # Group 2: Data B Paste
         group_b = QGroupBox("2. 데이터 B 붙여넣기 (Ctrl+V)")
         layout_b = QVBoxLayout(group_b)
         self.txt_paste_b = QTextEdit()
-        self.txt_paste_b.setPlaceholderText("엑셀에서 복사(Ctrl+C)한 2번째 데이터를 붙여넣으세요...")
+        self.txt_paste_b.setPlaceholderText("엑셀에서 복사(Ctrl+C)한 2번째 데이터를 붙여넣으세요 (Ctrl+V)...")
         self.txt_paste_b.textChanged.connect(self.run_analysis)
         layout_b.addWidget(self.txt_paste_b)
-
-        btn_box_b = QHBoxLayout()
-        self.btn_read_b = QPushButton("📋 B 클립보드 읽기")
-        self.btn_read_b.clicked.connect(self.read_clip_b)
-        btn_box_b.addWidget(self.btn_read_b)
-        layout_b.addLayout(btn_box_b)
         left_layout.addWidget(group_b)
 
         # Preprocessing Options
@@ -296,11 +284,9 @@ class ColumnConcatWidget(QWidget):
         paste_layout.addWidget(self.txt_paste)
 
         btn_box = QHBoxLayout()
-        self.btn_read_clip = QPushButton("📋 클립보드 읽기")
-        self.btn_read_clip.clicked.connect(self.read_from_clipboard)
         self.btn_clear = QPushButton("초기화")
         self.btn_clear.clicked.connect(self.clear_data)
-        btn_box.addWidget(self.btn_read_clip)
+        btn_box.addStretch()
         btn_box.addWidget(self.btn_clear)
         paste_layout.addLayout(btn_box)
         left_layout.addWidget(paste_group)
