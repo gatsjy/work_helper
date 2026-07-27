@@ -1,29 +1,20 @@
 document.addEventListener('DOMContentLoaded', () => {
     // State
-    let currentFileId = null;
-    let currentFileName = null;
     let analysisResult = null;
     let activeTab = 'intersection';
     let currentPage = 1;
     const pageSize = 50;
     let searchQuery = '';
 
-    // DOM Elements
-    const dropzone = document.getElementById('dropzone');
-    const fileInput = document.getElementById('file-input');
-    const fileInfo = document.getElementById('file-info');
-    const fileNameSpan = document.getElementById('file-name');
-    const btnChangeFile = document.getElementById('btn-change-file');
-
-    const setupForm = document.getElementById('setup-form');
-    const sheetSelectA = document.getElementById('sheet-select-a');
-    const colSelectA = document.getElementById('col-select-a');
-    const colSelectB = document.getElementById('col-select-b');
-    
+    // DOM Elements - Tab 1 (Set Analyzer)
+    const setPasteA = document.getElementById('set-paste-a');
+    const setPasteB = document.getElementById('set-paste-b');
+    const btnClipA = document.getElementById('btn-clip-a');
+    const btnClipB = document.getElementById('btn-clip-b');
+    const optHeaderA = document.getElementById('opt-header-a');
     const optTrim = document.getElementById('opt-trim');
     const optCase = document.getElementById('opt-case');
     const optDropEmpty = document.getElementById('opt-drop-empty');
-
     const btnAnalyze = document.getElementById('btn-analyze');
     const btnLoadSample = document.getElementById('btn-load-sample');
 
@@ -51,195 +42,145 @@ document.addEventListener('DOMContentLoaded', () => {
         'union': '🟢 합집합 (A 또는 B 전체)'
     };
 
-    // Drag & Drop
-    ['dragenter', 'dragover'].forEach(eventName => {
-        dropzone.addEventListener(eventName, (e) => {
-            e.preventDefault();
-            dropzone.classList.add('dragover');
-        });
-    });
-
-    ['dragleave', 'drop'].forEach(eventName => {
-        dropzone.addEventListener(eventName, (e) => {
-            e.preventDefault();
-            dropzone.classList.remove('dragover');
-        });
-    });
-
-    dropzone.addEventListener('drop', (e) => {
-        const files = e.dataTransfer.files;
-        if (files.length > 0) {
-            handleFileUpload(files[0]);
-        }
-    });
-
-    fileInput.addEventListener('change', (e) => {
-        if (e.target.files.length > 0) {
-            handleFileUpload(e.target.files[0]);
-        }
-    });
-
-    btnChangeFile.addEventListener('click', () => {
-        fileInput.value = '';
-        dropzone.classList.remove('hidden');
-        fileInfo.classList.add('hidden');
-        setupForm.classList.add('disabled');
-        currentFileId = null;
-    });
-
-    async function handleFileUpload(file) {
-        const formData = new FormData();
-        formData.append('file', file);
-
+    // Clipboard Read Buttons
+    btnClipA.addEventListener('click', async () => {
         try {
-            const res = await fetch('/api/upload', {
-                method: 'POST',
-                body: formData
-            });
-
-            if (!res.ok) {
-                const err = await res.json();
-                alert('파일 업로드 오류: ' + (err.error || '업로드 실패'));
-                return;
-            }
-
-            const data = await res.json();
-            currentFileId = data.file_id;
-            currentFileName = data.filename;
-
-            fileNameSpan.textContent = currentFileName;
-            dropzone.classList.add('hidden');
-            fileInfo.classList.remove('hidden');
-            setupForm.classList.remove('disabled');
-
-            sheetSelectA.innerHTML = '';
-            data.sheets.forEach(sheet => {
-                const opt = document.createElement('option');
-                opt.value = sheet;
-                opt.textContent = sheet;
-                sheetSelectA.appendChild(opt);
-            });
-
-            if (data.sheets.length > 0) {
-                await loadColumns(data.sheets[0]);
-            }
-        } catch (err) {
-            console.error(err);
-            alert('파일 처리 중 오류가 발생했습니다.');
-        }
-    }
-
-    sheetSelectA.addEventListener('change', async (e) => {
-        if (currentFileId) {
-            await loadColumns(e.target.value);
-        }
-    });
-
-    async function loadColumns(sheetName) {
-        try {
-            const res = await fetch('/api/columns', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ file_id: currentFileId, sheet_name: sheetName })
-            });
-
-            if (!res.ok) return;
-
-            const data = await res.json();
-            colSelectA.innerHTML = '';
-            colSelectB.innerHTML = '';
-
-            data.columns.forEach((col, idx) => {
-                const optA = document.createElement('option');
-                optA.value = col;
-                optA.textContent = col;
-                colSelectA.appendChild(optA);
-
-                const optB = document.createElement('option');
-                optB.value = col;
-                optB.textContent = col;
-                colSelectB.appendChild(optB);
-            });
-
-            if (data.columns.length > 1) {
-                colSelectB.selectedIndex = 1;
+            if (navigator.clipboard && navigator.clipboard.readText) {
+                const text = await navigator.clipboard.readText();
+                setPasteA.value = text;
+                computeSetAnalysis();
             }
         } catch (err) {
             console.error(err);
         }
-    }
+    });
 
-    // Load Sample Button
-    btnLoadSample.addEventListener('click', async () => {
+    btnClipB.addEventListener('click', async () => {
         try {
-            const res = await fetch('/api/sample');
-            const data = await res.json();
-            
-            currentFileId = data.file_id;
-            currentFileName = "sample_data.xlsx";
-
-            fileNameSpan.textContent = currentFileName;
-            dropzone.classList.add('hidden');
-            fileInfo.classList.remove('hidden');
-            setupForm.classList.remove('disabled');
-
-            sheetSelectA.innerHTML = '<option value="임직원비교">임직원비교</option>';
-            colSelectA.innerHTML = '<option value="전산팀_명단">전산팀_명단</option>';
-            colSelectB.innerHTML = '<option value="인사팀_등록명단">인사팀_등록명단</option>';
-
-            await runAnalysis();
+            if (navigator.clipboard && navigator.clipboard.readText) {
+                const text = await navigator.clipboard.readText();
+                setPasteB.value = text;
+                computeSetAnalysis();
+            }
         } catch (err) {
             console.error(err);
-            alert('샘플 데이터 로드 실패');
         }
     });
 
-    btnAnalyze.addEventListener('click', async () => {
-        await runAnalysis();
+    // Inputs change -> compute set analysis
+    setPasteA.addEventListener('input', computeSetAnalysis);
+    setPasteB.addEventListener('input', computeSetAnalysis);
+    optHeaderA.addEventListener('change', computeSetAnalysis);
+    optTrim.addEventListener('change', computeSetAnalysis);
+    optCase.addEventListener('change', computeSetAnalysis);
+    optDropEmpty.addEventListener('change', computeSetAnalysis);
+
+    btnAnalyze.addEventListener('click', computeSetAnalysis);
+
+    // Sample Data Loader
+    btnLoadSample.addEventListener('click', () => {
+        setPasteA.value = "김철수\n이영희\n박민수\n정수진\n최동훈\n홍길동\n임재범";
+        setPasteB.value = "이영희\n최동훈\n강하늘\n윤서준\n홍길동\n송중기";
+        computeSetAnalysis();
+        showToast("💡 샘플 데이터가 입력되었습니다!");
     });
 
-    async function runAnalysis() {
-        if (!currentFileId) {
-            alert('엑셀 파일을 업로드해주세요.');
+    function computeSetAnalysis() {
+        const rawTextA = setPasteA.value || '';
+        const rawTextB = setPasteB.value || '';
+
+        if (!rawTextA.trim() && !rawTextB.trim()) {
+            analysisResult = null;
+            emptyState.classList.remove('hidden');
+            dashboardContent.classList.add('hidden');
             return;
         }
 
-        const payload = {
-            file_id: currentFileId,
-            sheet_a: sheetSelectA.value,
-            col_a: colSelectA.value,
-            sheet_b: sheetSelectA.value,
-            col_b: colSelectB.value,
-            case_sensitive: optCase.checked,
-            trim_space: optTrim.checked,
-            drop_empty: optDropEmpty.checked
+        const doTrim = optTrim.checked;
+        const doCase = optCase.checked;
+        const dropEmpty = optDropEmpty.checked;
+        const skipHeader = optHeaderA.checked;
+
+        function parseItems(text) {
+            if (!text || !text.trim()) return [];
+            let lines = text.split(/\r?\n/).filter(l => l.length > 0);
+            if (skipHeader && lines.length > 0) lines = lines.slice(1);
+
+            const items = [];
+            lines.forEach(line => {
+                const parts = line.split('\t');
+                let val = parts[0];
+                if (doTrim) val = val.trim();
+                if (dropEmpty && (!val || val === '')) return;
+
+                const norm = doCase ? val : val.toLowerCase();
+                items.push({ norm, raw: val });
+            });
+            return items;
+        }
+
+        const itemsA = parseItems(rawTextA);
+        const itemsB = parseItems(rawTextB);
+
+        const setNormA = new Set(itemsA.map(i => i.norm));
+        const setNormB = new Set(itemsB.map(i => i.norm));
+
+        const rawMapA = new Map(itemsA.map(i => [i.norm, i.raw]));
+        const rawMapB = new Map(itemsB.map(i => [i.norm, i.raw]));
+
+        const normIntersection = new Set([...setNormA].filter(x => setNormB.has(x)));
+        const normAOnly = new Set([...setNormA].filter(x => !setNormB.has(x)));
+        const normBOnly = new Set([...setNormB].filter(x => !setNormA.has(x)));
+        const normSymDiff = new Set([...normAOnly, ...normBOnly]);
+        const normUnion = new Set([...setNormA, ...setNormB]);
+
+        function buildList(normSet, originFilter) {
+            const sorted = [...normSet].sort();
+            const results = [];
+            sorted.forEach(norm => {
+                const inA = setNormA.has(norm);
+                const inB = setNormB.has(norm);
+                const rawVal = rawMapA.get(norm) || rawMapB.get(norm) || norm;
+
+                if (originFilter === 'A_ONLY' && !(inA && !inB)) return;
+                if (originFilter === 'B_ONLY' && !(inB && !inA)) return;
+
+                let origin = '공통(교집합)';
+                if (inA && !inB) origin = 'A전용(차집합A)';
+                else if (inB && !inA) origin = 'B전용(차집합B)';
+
+                results.push({
+                    val: rawVal,
+                    origin: origin,
+                    in_a: inA ? 'O' : 'X',
+                    in_b: inB ? 'O' : 'X'
+                });
+            });
+            return results;
+        }
+
+        const listIntersection = buildList(normIntersection);
+        const listAOnly = buildList(normAOnly, 'A_ONLY');
+        const listBOnly = buildList(normBOnly, 'B_ONLY');
+        const listSymDiff = [...listAOnly, ...listBOnly];
+        const listUnion = buildList(normUnion);
+
+        analysisResult = {
+            stats: {
+                intersection_count: normIntersection.size,
+                a_only_count: normAOnly.size,
+                b_only_count: normBOnly.size,
+                sym_diff_count: normSymDiff.size,
+                union_count: normUnion.size
+            },
+            intersection: listIntersection,
+            a_only: listAOnly,
+            b_only: listBOnly,
+            sym_diff: listSymDiff,
+            union: listUnion
         };
 
-        try {
-            btnAnalyze.disabled = true;
-            btnAnalyze.innerHTML = '<span>⏳ 분석 중...</span>';
-
-            const res = await fetch('/api/analyze', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-
-            if (!res.ok) {
-                const err = await res.json();
-                alert('분석 오류: ' + (err.error || '오류 발생'));
-                return;
-            }
-
-            analysisResult = await res.json();
-            renderDashboard();
-        } catch (err) {
-            console.error(err);
-            alert('분석 중 오류가 발생했습니다.');
-        } finally {
-            btnAnalyze.disabled = false;
-            btnAnalyze.innerHTML = '<span>⚡ 집합 비교 분석 수행</span>';
-        }
+        renderDashboard();
     }
 
     function renderDashboard() {
@@ -349,20 +290,357 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // -------------------------------------------------------------
-    // CLIPBOARD COPY LOGIC
+    // MAIN FEATURE NAVIGATION TABS
     // -------------------------------------------------------------
-    btnCopyValuesOnly.addEventListener('click', () => {
-        copyToClipboard('values_only', activeTab);
+    const navTabBtns = document.querySelectorAll('.nav-tab-btn');
+    const viewSetAnalyzer = document.getElementById('nav-view-set-analyzer');
+    const viewColumnConcat = document.getElementById('nav-view-column-concat');
+
+    navTabBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            navTabBtns.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            const targetNav = btn.getAttribute('data-nav');
+
+            if (targetNav === 'set-analyzer') {
+                viewSetAnalyzer.classList.remove('hidden');
+                viewSetAnalyzer.classList.add('active');
+                viewColumnConcat.classList.add('hidden');
+                viewColumnConcat.classList.remove('active');
+            } else if (targetNav === 'column-concat') {
+                viewColumnConcat.classList.remove('hidden');
+                viewColumnConcat.classList.add('active');
+                viewSetAnalyzer.classList.add('hidden');
+                viewSetAnalyzer.classList.remove('active');
+            }
+        });
     });
 
-    btnCopyTable.addEventListener('click', () => {
-        copyToClipboard('tsv_table', activeTab);
+    // -------------------------------------------------------------
+    // COLUMN CONCAT ENGINE LOGIC
+    // -------------------------------------------------------------
+    let concatRawRows = [];
+    let concatHeaders = [];
+    let selectedColumnIndices = [];
+    let concatResults = [];
+
+    const concatPasteInput = document.getElementById('concat-paste-input');
+    const btnReadClipboard = document.getElementById('btn-read-clipboard');
+    const btnClearConcat = document.getElementById('btn-clear-concat');
+    const concatSetupPanel = document.getElementById('concat-setup-panel');
+    const chkConcatHeader = document.getElementById('chk-concat-header');
+    const concatColumnChips = document.getElementById('concat-column-chips');
+    const concatSequenceTags = document.getElementById('concat-sequence-tags');
+    const btnResetSequence = document.getElementById('btn-reset-sequence');
+
+    const concatDelimiterSelect = document.getElementById('concat-delimiter-select');
+    const customDelimiterWrapper = document.getElementById('custom-delimiter-wrapper');
+    const concatCustomDelimiter = document.getElementById('concat-custom-delimiter');
+    const concatOptTrim = document.getElementById('concat-opt-trim');
+    const concatOptSkipEmpty = document.getElementById('concat-opt-skip-empty');
+
+    const concatEmptyState = document.getElementById('concat-empty-state');
+    const concatResultDashboard = document.getElementById('concat-result-dashboard');
+    const concatRowCount = document.getElementById('concat-row-count');
+    const concatTableBody = document.getElementById('concat-table-body');
+    const concatSearchInput = document.getElementById('concat-search-input');
+    const concatPageInfo = document.getElementById('concat-page-info');
+    const btnCopyConcatResult = document.getElementById('btn-copy-concat-result');
+
+    concatPasteInput.addEventListener('input', () => {
+        parseConcatData(concatPasteInput.value);
     });
 
-    document.querySelectorAll('.btn-copy-mini').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            const type = e.target.getAttribute('data-type');
-            copyToClipboard('values_only', type);
+    btnReadClipboard.addEventListener('click', async () => {
+        try {
+            if (navigator.clipboard && navigator.clipboard.readText) {
+                const text = await navigator.clipboard.readText();
+                concatPasteInput.value = text;
+                parseConcatData(text);
+                showToast('📋 클립보드 데이터를 성공적으로 불러왔습니다!');
+            } else {
+                alert('클립보드 읽기 권한을 지원하지 않는 브라우저입니다. Ctrl+V로 붙여넣어주세요.');
+            }
+        } catch (err) {
+            console.error(err);
+            alert('클립보드 데이터를 읽을 수 없습니다. 직접 Ctrl+V로 붙여넣어주세요.');
+        }
+    });
+
+    btnClearConcat.addEventListener('click', () => {
+        concatPasteInput.value = '';
+        concatRawRows = [];
+        concatHeaders = [];
+        selectedColumnIndices = [];
+        concatResults = [];
+        concatSetupPanel.classList.add('disabled');
+        renderColumnChips();
+        renderSequenceTags();
+        renderConcatResults();
+    });
+
+    chkConcatHeader.addEventListener('change', () => {
+        if (concatPasteInput.value.trim()) {
+            parseConcatData(concatPasteInput.value);
+        }
+    });
+
+    concatDelimiterSelect.addEventListener('change', (e) => {
+        if (e.target.value === 'custom') {
+            customDelimiterWrapper.classList.remove('hidden');
+        } else {
+            customDelimiterWrapper.classList.add('hidden');
+        }
+        computeAndRenderConcat();
+    });
+
+    concatCustomDelimiter.addEventListener('input', computeAndRenderConcat);
+    concatOptTrim.addEventListener('change', computeAndRenderConcat);
+    concatOptSkipEmpty.addEventListener('change', computeAndRenderConcat);
+
+    btnResetSequence.addEventListener('click', () => {
+        selectedColumnIndices = [];
+        renderSequenceTags();
+        computeAndRenderConcat();
+    });
+
+    concatSearchInput.addEventListener('input', renderConcatTable);
+
+    function getColumnLetter(index) {
+        let letter = '';
+        while (index >= 0) {
+            letter = String.fromCharCode((index % 26) + 65) + letter;
+            index = Math.floor(index / 26) - 1;
+        }
+        return letter;
+    }
+
+    function parseConcatData(rawText) {
+        if (!rawText || !rawText.trim()) {
+            concatRawRows = [];
+            concatHeaders = [];
+            selectedColumnIndices = [];
+            concatSetupPanel.classList.add('disabled');
+            renderColumnChips();
+            renderSequenceTags();
+            computeAndRenderConcat();
+            return;
+        }
+
+        const lines = rawText.split(/\r?\n/).filter(line => line.length > 0);
+        if (lines.length === 0) return;
+
+        // Determine separator: TSV (\t) preferred, fallback to comma or multiple spaces
+        const firstLine = lines[0];
+        let sep = '\t';
+        if (!firstLine.includes('\t')) {
+            if (firstLine.includes(',')) sep = ',';
+            else sep = /\s{2,}/;
+        }
+
+        const parsedRows = lines.map(line => line.split(sep));
+        const maxCols = Math.max(...parsedRows.map(r => r.length));
+
+        const hasHeader = chkConcatHeader.checked;
+        if (hasHeader && parsedRows.length > 0) {
+            const headerRow = parsedRows[0];
+            concatHeaders = [];
+            for (let i = 0; i < maxCols; i++) {
+                const name = (headerRow[i] !== undefined && headerRow[i].trim() !== '') 
+                    ? headerRow[i].trim() 
+                    : `열 ${getColumnLetter(i)}`;
+                concatHeaders.push(name);
+            }
+            concatRawRows = parsedRows.slice(1);
+        } else {
+            concatHeaders = [];
+            for (let i = 0; i < maxCols; i++) {
+                concatHeaders.push(`열 ${getColumnLetter(i)}`);
+            }
+            concatRawRows = parsedRows;
+        }
+
+        concatSetupPanel.classList.remove('disabled');
+        renderColumnChips();
+
+        // Default: If no columns selected, auto select first 2 columns if available
+        if (selectedColumnIndices.length === 0 && concatHeaders.length > 0) {
+            selectedColumnIndices = concatHeaders.length > 1 ? [0, 1] : [0];
+        } else {
+            // Remove any invalid indices
+            selectedColumnIndices = selectedColumnIndices.filter(idx => idx < concatHeaders.length);
+        }
+
+        renderSequenceTags();
+        computeAndRenderConcat();
+    }
+
+    function renderColumnChips() {
+        concatColumnChips.innerHTML = '';
+        if (concatHeaders.length === 0) {
+            concatColumnChips.innerHTML = '<span class="empty-chips-hint">붙여넣은 데이터가 없습니다.</span>';
+            return;
+        }
+
+        concatHeaders.forEach((header, idx) => {
+            const colLetter = getColumnLetter(idx);
+            const chip = document.createElement('div');
+            chip.className = 'column-chip';
+            chip.innerHTML = `<span>+ [${colLetter}] ${escapeHtml(header)}</span>`;
+            chip.addEventListener('click', () => {
+                selectedColumnIndices.push(idx);
+                renderSequenceTags();
+                computeAndRenderConcat();
+            });
+            concatColumnChips.appendChild(chip);
+        });
+    }
+
+    function renderSequenceTags() {
+        concatSequenceTags.innerHTML = '';
+        if (selectedColumnIndices.length === 0) {
+            concatSequenceTags.innerHTML = '<span class="empty-chips-hint">컬럼을 클릭하여 병합 순서를 지정하세요.</span>';
+            return;
+        }
+
+        selectedColumnIndices.forEach((colIdx, seqIdx) => {
+            if (seqIdx > 0) {
+                const arrow = document.createElement('span');
+                arrow.className = 'sequence-arrow';
+                arrow.textContent = '➔';
+                concatSequenceTags.appendChild(arrow);
+            }
+
+            const headerName = concatHeaders[colIdx] || `열 ${getColumnLetter(colIdx)}`;
+            const tag = document.createElement('div');
+            tag.className = 'sequence-tag';
+            tag.innerHTML = `
+                <span class="tag-num">${seqIdx + 1}</span>
+                <span>[${getColumnLetter(colIdx)}] ${escapeHtml(headerName)}</span>
+                <span class="btn-remove-tag" data-seq="${seqIdx}">✕</span>
+            `;
+
+            tag.querySelector('.btn-remove-tag').addEventListener('click', (e) => {
+                e.stopPropagation();
+                selectedColumnIndices.splice(seqIdx, 1);
+                renderSequenceTags();
+                computeAndRenderConcat();
+            });
+
+            concatSequenceTags.appendChild(tag);
+        });
+    }
+
+    function getSelectedDelimiter() {
+        const type = concatDelimiterSelect.value;
+        switch (type) {
+            case 'space': return ' ';
+            case 'hyphen': return '-';
+            case 'underscore': return '_';
+            case 'comma': return ', ';
+            case 'slash': return '/';
+            case 'none': return '';
+            case 'custom': return concatCustomDelimiter.value;
+            default: return ' ';
+        }
+    }
+
+    function computeAndRenderConcat() {
+        if (concatRawRows.length === 0 || selectedColumnIndices.length === 0) {
+            concatResults = [];
+            renderConcatResults();
+            return;
+        }
+
+        const delimiter = getSelectedDelimiter();
+        const doTrim = concatOptTrim.checked;
+        const skipEmpty = concatOptSkipEmpty.checked;
+
+        concatResults = concatRawRows.map((row, rowIdx) => {
+            const rowValues = [];
+            const sourceSummaries = [];
+
+            selectedColumnIndices.forEach(colIdx => {
+                let rawVal = row[colIdx] !== undefined ? row[colIdx] : '';
+                if (doTrim) rawVal = rawVal.trim();
+
+                if (!skipEmpty || rawVal !== '') {
+                    rowValues.push(rawVal);
+                }
+
+                const hName = concatHeaders[colIdx] || getColumnLetter(colIdx);
+                sourceSummaries.push(`${hName}: "${rawVal}"`);
+            });
+
+            const outputVal = rowValues.join(delimiter);
+            return {
+                row_idx: rowIdx + 1,
+                val: outputVal,
+                summary: sourceSummaries.join(' | ')
+            };
+        });
+
+        renderConcatResults();
+    }
+
+    function renderConcatResults() {
+        if (concatResults.length === 0) {
+            concatEmptyState.classList.remove('hidden');
+            concatResultDashboard.classList.add('hidden');
+            return;
+        }
+
+        concatEmptyState.classList.add('hidden');
+        concatResultDashboard.classList.remove('hidden');
+
+        concatRowCount.textContent = concatResults.length.toLocaleString();
+        renderConcatTable();
+    }
+
+    function renderConcatTable() {
+        const query = concatSearchInput.value.trim().toLowerCase();
+        let items = concatResults;
+
+        if (query) {
+            items = items.filter(item => 
+                String(item.val).toLowerCase().includes(query) ||
+                String(item.summary).toLowerCase().includes(query)
+            );
+        }
+
+        concatTableBody.innerHTML = '';
+
+        if (items.length === 0) {
+            concatTableBody.innerHTML = `<tr><td colspan="3" style="text-align:center; padding: 30px; color: var(--text-muted);">검색 결과가 없습니다.</td></tr>`;
+        } else {
+            // Display first 100 preview rows
+            const previewItems = items.slice(0, 100);
+            previewItems.forEach((item, idx) => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${item.row_idx}</td>
+                    <td><strong style="color: #60a5fa; font-size: 14px;">${escapeHtml(item.val)}</strong></td>
+                    <td style="color: var(--text-muted); font-size: 12px;">${escapeHtml(item.summary)}</td>
+                `;
+                concatTableBody.appendChild(tr);
+            });
+        }
+
+        concatPageInfo.textContent = `전체 ${items.length.toLocaleString()}개 중 상위 ${Math.min(items.length, 100)}개 표시 중`;
+    }
+
+    btnCopyConcatResult.addEventListener('click', () => {
+        if (concatResults.length === 0) {
+            alert('복사할 병합 결과 데이터가 없습니다.');
+            return;
+        }
+
+        const textToCopy = concatResults.map(item => item.val).join('\n');
+        navigator.clipboard.writeText(textToCopy).then(() => {
+            showToast(`📋 병합 결과 ${concatResults.length.toLocaleString()}행 클립보드 복사 완료! (Ctrl+V로 엑셀에 붙여넣으세요)`);
+        }).catch(err => {
+            console.error(err);
+            alert('클립보드 복사에 실패했습니다.');
         });
     });
 
@@ -376,10 +654,8 @@ document.addEventListener('DOMContentLoaded', () => {
         let textToCopy = "";
 
         if (format === 'values_only') {
-            // 줄바꿈 구분 (엑셀 1컬럼 붙여넣기 최적화)
             textToCopy = items.map(item => item.val).join('\n');
         } else if (format === 'tsv_table') {
-            # TSV 표 형태 (엑셀 여러 컬럼 붙여넣기 최적화)
             const headers = ["번호", "데이터값", "구분(출처)", "A존재", "B존재"];
             const rows = items.map((item, idx) => 
                 `${idx + 1}\t${item.val}\t${item.origin}\t${item.in_a}\t${item.in_b}`
@@ -411,3 +687,4 @@ document.addEventListener('DOMContentLoaded', () => {
             .replace(/"/g, '&quot;');
     }
 });
+

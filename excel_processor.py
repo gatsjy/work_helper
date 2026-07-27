@@ -48,6 +48,150 @@ class ExcelSetProcessor:
         df.columns = [str(col).strip() for col in df.columns]
         return df
 
+    @staticmethod
+    def analyze_raw_text_sets(
+        raw_text_a: str,
+        raw_text_b: str,
+        has_header_a: bool = False,
+        has_header_b: bool = False,
+        col_a_idx: int = 0,
+        col_b_idx: int = 0,
+        case_sensitive: bool = False,
+        trim_space: bool = True,
+        drop_empty: bool = True
+    ) -> Dict[str, Any]:
+        """클립보드 텍스트 데이터를 직접 받아 집합 연산을 수행"""
+        def parse_lines(text: str):
+            if not text or not text.strip():
+                return []
+            lines = [l for l in text.splitlines() if l.strip()]
+            if not lines:
+                return []
+            first = lines[0]
+            sep = '\t' if '\t' in first else (',' if ',' in first else None)
+            if sep:
+                return [l.split(sep) for l in lines]
+            else:
+                import re
+                return [re.split(r'\s{2,}', l) for l in lines]
+
+        rows_a = parse_lines(raw_text_a)
+        rows_b = parse_lines(raw_text_b)
+
+        name_a = "데이터 A"
+        if has_header_a and rows_a:
+            header_a = rows_a[0]
+            name_a = header_a[col_a_idx].strip() if col_a_idx < len(header_a) and header_a[col_a_idx].strip() else f"열 {col_a_idx+1}"
+            rows_a = rows_a[1:]
+
+        name_b = "데이터 B"
+        if has_header_b and rows_b:
+            header_b = rows_b[0]
+            name_b = header_b[col_b_idx].strip() if col_b_idx < len(header_b) and header_b[col_b_idx].strip() else f"열 {col_b_idx+1}"
+            rows_b = rows_b[1:]
+
+        def normalize_val(val: Any) -> str:
+            if pd.isna(val) or val is None:
+                return ""
+            s = str(val)
+            if trim_space:
+                s = s.strip()
+            if not case_sensitive:
+                s = s.lower()
+            return s
+
+        items_a = []
+        for idx, row in enumerate(rows_a):
+            val = row[col_a_idx] if col_a_idx < len(row) else ""
+            norm = normalize_val(val)
+            if drop_empty and norm == "":
+                continue
+            raw_str = str(val).strip() if trim_space else str(val)
+            items_a.append({'norm': norm, 'raw': raw_str})
+
+        items_b = []
+        for idx, row in enumerate(rows_b):
+            val = row[col_b_idx] if col_b_idx < len(row) else ""
+            norm = normalize_val(val)
+            if drop_empty and norm == "":
+                continue
+            raw_str = str(val).strip() if trim_space else str(val)
+            items_b.append({'norm': norm, 'raw': raw_str})
+
+        set_norm_a = set(item['norm'] for item in items_a)
+        set_norm_b = set(item['norm'] for item in items_b)
+
+        norm_to_raw_a = {item['norm']: item['raw'] for item in items_a}
+        norm_to_raw_b = {item['norm']: item['raw'] for item in items_b}
+
+        norm_intersection = set_norm_a.intersection(set_norm_b)
+        norm_a_only = set_norm_a.difference(set_norm_b)
+        norm_b_only = set_norm_b.difference(set_norm_a)
+        norm_sym_diff = norm_a_only.union(norm_b_only)
+        norm_union = set_norm_a.union(set_norm_b)
+
+        def build_result_list(norm_set: set, origin_filter: Optional[str] = None) -> List[Dict[str, Any]]:
+            results = []
+            sorted_norms = sorted(list(norm_set))
+            for norm in sorted_norms:
+                in_a = norm in set_norm_a
+                in_b = norm in set_norm_b
+                raw_val = norm_to_raw_a.get(norm, norm_to_raw_b.get(norm, norm))
+                
+                if origin_filter == 'A_ONLY' and not (in_a and not in_b):
+                    continue
+                if origin_filter == 'B_ONLY' and not (in_b and not in_a):
+                    continue
+
+                if in_a and not in_b:
+                    origin = "A전용(차집합A)"
+                elif in_b and not in_a:
+                    origin = "B전용(차집합B)"
+                else:
+                    origin = "공통(교집합)"
+
+                results.append({
+                    'val': raw_val,
+                    'origin': origin,
+                    'in_a': "O" if in_a else "X",
+                    'in_b': "O" if in_b else "X",
+                })
+            return results
+
+        list_intersection = build_result_list(norm_intersection)
+        list_a_only = build_result_list(norm_a_only, origin_filter='A_ONLY')
+        list_b_only = build_result_list(norm_b_only, origin_filter='B_ONLY')
+        list_sym_diff = list_a_only + list_b_only
+        list_union = build_result_list(norm_union)
+
+        stats = {
+            'col_a_name': name_a,
+            'col_b_name': name_b,
+            'total_a_rows': len(rows_a),
+            'total_b_rows': len(rows_b),
+            'unique_a_count': len(set_norm_a),
+            'unique_b_count': len(set_norm_b),
+            'intersection_count': len(norm_intersection),
+            'a_only_count': len(norm_a_only),
+            'b_only_count': len(norm_b_only),
+            'sym_diff_count': len(norm_sym_diff),
+            'union_count': len(norm_union),
+            'intersection_pct_a': round(len(norm_intersection) / max(len(set_norm_a), 1) * 100, 1),
+            'intersection_pct_b': round(len(norm_intersection) / max(len(set_norm_b), 1) * 100, 1),
+            'case_sensitive': case_sensitive,
+            'trim_space': trim_space,
+            'drop_empty': drop_empty
+        }
+
+        return {
+            'stats': stats,
+            'intersection': list_intersection,
+            'a_only': list_a_only,
+            'b_only': list_b_only,
+            'sym_diff': list_sym_diff,
+            'union': list_union
+        }
+
     def analyze_sets(
         self,
         sheet_a: str,

@@ -224,13 +224,19 @@ body {
 }
 
 .select-control, .input-control {
-    background: rgba(15, 23, 42, 0.8);
+    background: #1e293b;
     border: 1px solid var(--card-border);
     color: var(--text-primary);
     padding: 10px 12px;
     border-radius: var(--radius-sm);
     font-size: 13px;
     outline: none;
+}
+
+.select-control option, select option {
+    background-color: #1e293b;
+    color: #f8fafc;
+    padding: 8px 12px;
 }
 
 .options-group {
@@ -482,3 +488,199 @@ body {
 .hidden {
     display: none !important;
 }
+
+/* ==========================================================================
+   Main Feature Navigation Tabs
+   ========================================================================== */
+.main-nav-tabs {
+    display: flex;
+    gap: 12px;
+    background: var(--card-bg);
+    backdrop-filter: blur(16px);
+    border: 1px solid var(--card-border);
+    padding: 8px;
+    border-radius: var(--radius-md);
+}
+
+.nav-tab-btn {
+    flex: 1;
+    padding: 12px 20px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: var(--transition);
+    text-align: center;
+}
+
+.nav-tab-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
+}
+
+.nav-tab-btn.active {
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
+    color: white;
+    box-shadow: 0 4px 14px rgba(59, 130, 246, 0.35);
+}
+
+.nav-view-content {
+    width: 100%;
+}
+
+/* ==========================================================================
+   Column Concat UI Styles
+   ========================================================================== */
+.paste-area-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.concat-textarea {
+    width: 100%;
+    height: 120px;
+    background: rgba(15, 23, 42, 0.8);
+    border: 1px dashed var(--primary);
+    border-radius: var(--radius-sm);
+    padding: 12px;
+    color: var(--text-primary);
+    font-size: 13px;
+    resize: vertical;
+    outline: none;
+    transition: var(--transition);
+}
+
+.concat-textarea:focus {
+    border-style: solid;
+    border-color: #60a5fa;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+}
+
+.paste-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.btn-sm {
+    padding: 6px 12px;
+    font-size: 12px;
+}
+
+.btn-xs {
+    padding: 2px 8px;
+    font-size: 11px;
+}
+
+.detected-columns-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+
+.chips-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px;
+    min-height: 40px;
+    padding: 10px;
+    background: rgba(15, 23, 42, 0.5);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--card-border);
+}
+
+.column-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: rgba(59, 130, 246, 0.15);
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    border-radius: 20px;
+    color: #93c5fd;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    user-select: none;
+    transition: var(--transition);
+}
+
+.column-chip:hover {
+    background: rgba(59, 130, 246, 0.3);
+    transform: translateY(-1px);
+    color: white;
+}
+
+.selected-sequence-wrapper {
+    background: rgba(15, 23, 42, 0.7);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    border-radius: var(--radius-sm);
+    padding: 12px;
+}
+
+.sequence-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13px;
+    font-weight: 700;
+    color: #fbbf24;
+    margin-bottom: 8px;
+}
+
+.sequence-tags-container {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    min-height: 36px;
+}
+
+.sequence-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
+    color: white;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    box-shadow: 0 2px 6px rgba(217, 119, 6, 0.3);
+}
+
+.sequence-tag .tag-num {
+    background: rgba(0, 0, 0, 0.25);
+    padding: 1px 6px;
+    border-radius: 10px;
+    font-size: 11px;
+}
+
+.sequence-tag .btn-remove-tag {
+    cursor: pointer;
+    margin-left: 4px;
+    opacity: 0.8;
+}
+
+.sequence-tag .btn-remove-tag:hover {
+    opacity: 1;
+}
+
+.sequence-arrow {
+    color: var(--text-muted);
+    font-weight: 800;
+    font-size: 12px;
+}
+
+.empty-chips-hint {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
