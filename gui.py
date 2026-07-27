@@ -37,9 +37,16 @@ class SetAnalyzerWidget(QWidget):
         left_layout.setContentsMargins(8, 8, 8, 8)
         left_layout.setSpacing(14)
 
+        title_box = QHBoxLayout()
         title_label = QLabel("📋 Excel Set Analyzer")
         title_label.setFont(QFont("맑은 고딕", 14, QFont.Bold))
-        left_layout.addWidget(title_label)
+        self.btn_sample = QPushButton("💡 샘플 데이터 채우기")
+        self.btn_sample.setStyleSheet("background-color: #334155; color: #94a3b8; font-size: 11px; padding: 4px 8px;")
+        self.btn_sample.clicked.connect(self.fill_sample_data)
+        title_box.addWidget(title_label)
+        title_box.addStretch()
+        title_box.addWidget(self.btn_sample)
+        left_layout.addLayout(title_box)
 
         # Group 1: Data A Paste
         group_a = QGroupBox("1. 데이터 A 붙여넣기 (Ctrl+V)")
@@ -89,6 +96,9 @@ class SetAnalyzerWidget(QWidget):
 
         left_layout.addStretch()
         main_layout.addWidget(left_panel)
+
+        # Default sample fill
+        self.fill_sample_data()
 
         # -------------------------------------------------------------
         # Right Panel: Results & Clipboard Copy
@@ -150,15 +160,11 @@ class SetAnalyzerWidget(QWidget):
         table.setAlternatingRowColors(True)
         return table
 
-    def read_clip_a(self):
-        text = QApplication.clipboard().text()
-        if text:
-            self.txt_paste_a.setPlainText(text)
-
-    def read_clip_b(self):
-        text = QApplication.clipboard().text()
-        if text:
-            self.txt_paste_b.setPlainText(text)
+    def fill_sample_data(self):
+        sample_a = "AS_ASIS_DEPT\nAS_ASIS_DEPT\nAS_ASIS_DEPT\nAS_ASIS_DEPT\nAS_ASIS_DEPT\nAS_ASIS_DEPT\nAS_ASIS_DEPT\nUSER_ID_01\nUSER_ID_02"
+        sample_b = "ZSUHUSRN\nZSUHUSRN\nZSUHUSRN\nZSUHUSRN\nZSUHUSRN\nZSUHUSRN\nZSUHUSRN\nUSER_ID_01\nUSER_ID_03"
+        self.txt_paste_a.setPlainText(sample_a)
+        self.txt_paste_b.setPlainText(sample_b)
 
     def run_analysis(self):
         raw_text_a = self.txt_paste_a.toPlainText()
