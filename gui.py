@@ -409,8 +409,8 @@ class ColumnConcatWidget(QWidget):
         opt_layout.addWidget(QLabel("열 간 구분자 (Separator):"))
         self.combo_delim = QComboBox()
         self.combo_delim.addItems([
-            "없음 (\"\")",
             "공백 (\" \")",
+            "없음 (\"\")",
             "하이픈 (\"-\")",
             "언더바 (\"_\")",
             "콤마 (\", \")",
@@ -816,8 +816,8 @@ class ColumnConcatWidget(QWidget):
 
     def get_delimiter(self):
         idx = self.combo_delim.currentIndex()
-        delims = ["", " ", "-", "_", ", ", "/", self.txt_custom_delim.text()]
-        return delims[idx] if idx < len(delims) else ""
+        delims = [" ", "", "-", "_", ", ", "/", self.txt_custom_delim.text()]
+        return delims[idx] if idx < len(delims) else " "
 
     def load_presets_from_file(self):
         self.preset_file_path = os.path.join(os.path.expanduser("~"), ".excel_set_analyzer_presets.json")
