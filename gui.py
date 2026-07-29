@@ -524,6 +524,8 @@ class ColumnConcatWidget(QWidget):
         self.table.setAlternatingRowColors(True)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self.table.horizontalHeader().sectionClicked.connect(self.on_table_header_clicked)
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self.show_table_body_context_menu)
         self.table.horizontalHeader().setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.horizontalHeader().customContextMenuRequested.connect(self.show_header_context_menu)
         right_panel.addWidget(self.table)
@@ -533,16 +535,29 @@ class ColumnConcatWidget(QWidget):
         # Default sample fill
         self.fill_sample_data()
 
+    def show_table_body_context_menu(self, pos):
+        col_idx_logical = self.table.columnAt(pos.x())
+        if col_idx_logical < 0:
+            return
+        self.popup_column_context_menu(col_idx_logical, self.table.mapToGlobal(pos))
+
     def show_header_context_menu(self, pos):
         logical_index = self.table.horizontalHeader().logicalIndexAt(pos)
         if logical_index < 0:
             return
+        self.popup_column_context_menu(logical_index, self.table.horizontalHeader().mapToGlobal(pos))
 
+    def popup_column_context_menu(self, logical_index: int, global_pos):
         menu = QMenu(self)
+        act_autofit = menu.addAction("📐 전체 열 너비 내용에 맞게 자동 조절")
+        menu.addSeparator()
+
         if logical_index == 0:
             act_copy = menu.addAction("📋 병합 결과 전체 복사 (Ctrl+C)")
-            act = menu.exec(self.table.horizontalHeader().mapToGlobal(pos))
-            if act == act_copy:
+            act = menu.exec(global_pos)
+            if act == act_autofit:
+                self.table.resizeColumnsToContents()
+            elif act == act_copy:
                 self.copy_results()
         else:
             col_idx = logical_index - 1
@@ -551,8 +566,10 @@ class ColumnConcatWidget(QWidget):
             act_insert = menu.addAction(f"➕ [{h_name}] 우측에 새 열 삽입")
             act_delete = menu.addAction(f"🗑️ [{h_name}] 열 삭제")
 
-            act = menu.exec(self.table.horizontalHeader().mapToGlobal(pos))
-            if act == act_insert:
+            act = menu.exec(global_pos)
+            if act == act_autofit:
+                self.table.resizeColumnsToContents()
+            elif act == act_insert:
                 self.insert_column_right(col_idx)
             elif act == act_delete:
                 self.delete_column_at(col_idx)
@@ -754,6 +771,8 @@ class ColumnConcatWidget(QWidget):
             btn = QPushButton(btn_text)
             btn.setStyleSheet(btn_style)
             btn.clicked.connect(lambda _, c=col_idx: self.add_column_to_seq(c))
+            btn.setContextMenuPolicy(Qt.CustomContextMenu)
+            btn.customContextMenuRequested.connect(lambda pos, c=col_idx, b=btn: self.popup_column_context_menu(c + 1, b.mapToGlobal(pos)))
             chips_sub_layout.addWidget(btn)
 
         self.chips_layout.addLayout(chips_sub_layout)
@@ -892,7 +911,8 @@ class ColumnConcatWidget(QWidget):
 
         self.table.setColumnCount(len(headers))
         self.table.setHorizontalHeaderLabels(headers)
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.table.horizontalHeader().setStretchLastSection(False)
 
         query = self.txt_search.text().strip().lower()
         filtered_indices = list(range(len(self.concat_raw_rows)))
