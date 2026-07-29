@@ -17,5 +17,9 @@
 
 ## 🖥️ Application Features (`gui.py`)
 - **100% Clipboard (`Ctrl+V`) Operation**: All operations accept data pasted directly from Excel.
+- **Startup Splash Screen**: Animated progress bar (0%~100%) and foreground popup (`raise_()`, `activateWindow()`).
+- **Floating Toast Notifications**: Non-blocking dark/cyan toast notifications (`ToastNotification`) on copy actions.
 - **Tab 1: 📊 엑셀 집합 분석 (Set Analyzer)**: Dual clipboard text paste areas for calculating Intersection, A Only, B Only, Symmetric Difference, and Union. Instant cell drag block selection & `Ctrl+C` copy (`CopyableTableWidget`).
-- **Tab 2: 🔗 컬럼 Concat / 병합 (Column Concat)**: Clipboard TSV table parsing and interactive column header clicking for row-by-row string concatenation with auto-copy.
+- **Tab 2: 🔗 컬럼 Concat / SQL 쿼리 생성기 (Column Concat & SQL Generator)**:
+  - Clipboard TSV table parsing & interactive column header clicking for row-by-row string concatenation.
+  - Prefix & Suffix query wrapping, SQL Presets (`SQL SELECT`, `SQL IN ('v',)`), and Custom Preset Manager (`.excel_set_analyzer_presets.json`).

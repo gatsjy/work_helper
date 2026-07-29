@@ -1,14 +1,14 @@
-# -*- coding: utf-8 -*-
 import sys
 import os
 import re
 import time
+import json
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QComboBox, QCheckBox, QTabWidget, QTableWidget,
     QTableWidgetItem, QFileDialog, QMessageBox, QGroupBox, QHeaderView, QLineEdit,
     QFrame, QTextEdit, QSplashScreen, QProgressBar, QAbstractItemView,
-    QGraphicsOpacityEffect
+    QGraphicsOpacityEffect, QInputDialog
 )
 from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QSequentialAnimationGroup
 from PySide6.QtGui import QFont, QKeySequence
@@ -363,6 +363,7 @@ class ColumnConcatWidget(QWidget):
         self.concat_results = []
 
         self.init_ui()
+        self.load_presets_from_file()
 
     def init_ui(self):
         main_layout = QHBoxLayout(self)
@@ -387,8 +388,12 @@ class ColumnConcatWidget(QWidget):
         paste_layout.addWidget(self.txt_paste)
 
         btn_box = QHBoxLayout()
+        self.btn_sample = QPushButton("💡 샘플 채우기")
+        self.btn_sample.setStyleSheet("background-color: #334155; color: #94a3b8; font-size: 11px; padding: 4px 6px;")
+        self.btn_sample.clicked.connect(self.fill_sample_data)
         self.btn_clear = QPushButton("초기화")
         self.btn_clear.clicked.connect(self.clear_data)
+        btn_box.addWidget(self.btn_sample)
         btn_box.addStretch()
         btn_box.addWidget(self.btn_clear)
         paste_layout.addLayout(btn_box)
@@ -406,12 +411,12 @@ class ColumnConcatWidget(QWidget):
         opt_layout.addWidget(QLabel("열 간 구분자 (Separator):"))
         self.combo_delim = QComboBox()
         self.combo_delim.addItems([
+            "없음 (\"\")",
             "공백 (\" \")",
             "하이픈 (\"-\")",
             "언더바 (\"_\")",
             "콤마 (\", \")",
             "슬래시 (\"/\")",
-            "없음 (\"\")",
             "사용자 지정..."
         ])
         self.combo_delim.currentIndexChanged.connect(self.on_delim_changed)
@@ -422,6 +427,58 @@ class ColumnConcatWidget(QWidget):
         self.txt_custom_delim.setVisible(False)
         self.txt_custom_delim.textChanged.connect(self.compute_and_render)
         opt_layout.addWidget(self.txt_custom_delim)
+
+        opt_layout.addWidget(QLabel("고정 접두사 (Prefix):"))
+        self.txt_prefix = QLineEdit()
+        self.txt_prefix.setPlaceholderText("예: SELECT * FROM  또는  '")
+        self.txt_prefix.textChanged.connect(self.compute_and_render)
+        self.txt_prefix.textChanged.connect(self.auto_copy_results)
+        opt_layout.addWidget(self.txt_prefix)
+
+        opt_layout.addWidget(QLabel("고정 접미사 (Suffix):"))
+        self.txt_suffix = QLineEdit()
+        self.txt_suffix.setPlaceholderText("예: ;  또는  ',")
+        self.txt_suffix.textChanged.connect(self.compute_and_render)
+        self.txt_suffix.textChanged.connect(self.auto_copy_results)
+        opt_layout.addWidget(self.txt_suffix)
+
+        # SQL Presets
+        preset_box = QHBoxLayout()
+        btn_preset_select = QPushButton("SQL SELECT")
+        btn_preset_select.setStyleSheet("background-color: #1e3a8a; color: #93c5fd; font-size: 11px; padding: 4px;")
+        btn_preset_select.clicked.connect(lambda: self.apply_preset("SELECT * FROM ", ";"))
+
+        btn_preset_in = QPushButton("SQL IN ('v',)")
+        btn_preset_in.setStyleSheet("background-color: #1e3a8a; color: #93c5fd; font-size: 11px; padding: 4px;")
+        btn_preset_in.clicked.connect(lambda: self.apply_preset("'", "',"))
+
+        btn_preset_semi = QPushButton("; 세미콜론")
+        btn_preset_semi.setStyleSheet("background-color: #1e3a8a; color: #93c5fd; font-size: 11px; padding: 4px;")
+        btn_preset_semi.clicked.connect(lambda: self.apply_preset("", ";"))
+
+        preset_box.addWidget(btn_preset_select)
+        preset_box.addWidget(btn_preset_in)
+        preset_box.addWidget(btn_preset_semi)
+        opt_layout.addLayout(preset_box)
+
+        # Custom Saved Presets
+        opt_layout.addWidget(QLabel("나만의 커스텀 프리셋 저장/관리:"))
+        custom_preset_layout = QHBoxLayout()
+        self.combo_custom_presets = QComboBox()
+        self.combo_custom_presets.currentIndexChanged.connect(self.on_custom_preset_selected)
+
+        btn_add_preset = QPushButton("➕ 저장")
+        btn_add_preset.setStyleSheet("background-color: #059669; color: white; font-weight: bold; padding: 4px 8px;")
+        btn_add_preset.clicked.connect(self.save_custom_preset)
+
+        btn_del_preset = QPushButton("🗑️ 삭제")
+        btn_del_preset.setStyleSheet("background-color: #dc2626; color: white; font-weight: bold; padding: 4px 8px;")
+        btn_del_preset.clicked.connect(self.delete_custom_preset)
+
+        custom_preset_layout.addWidget(self.combo_custom_presets, 1)
+        custom_preset_layout.addWidget(btn_add_preset)
+        custom_preset_layout.addWidget(btn_del_preset)
+        opt_layout.addLayout(custom_preset_layout)
 
         self.chk_trim = QCheckBox("각 데이터 앞뒤 공백 제거 (Trim)")
         self.chk_trim.setChecked(True)
@@ -492,6 +549,9 @@ class ColumnConcatWidget(QWidget):
         right_panel.addWidget(self.table)
 
         main_layout.addLayout(right_panel)
+
+        # Default sample fill
+        self.fill_sample_data()
 
     def on_table_header_clicked(self, logical_index: int):
         # Click header to add column to sequence
@@ -596,10 +656,98 @@ class ColumnConcatWidget(QWidget):
         self.compute_and_render()
         self.auto_copy_results()
 
+    def fill_sample_data(self):
+        sample_text = (
+            "RCPTSTAT\tUNCORCPTFLAG\n"
+            "Y\t1C\n"
+            "Y\t1C\n"
+            "Y\t1C\n"
+            "Y\t1C\n"
+            "Y\t1C\n"
+            "Y\t1C\n"
+            "Y\t1C\n"
+            "Y\t1C\n"
+            "Y\t1C\n"
+            "Y\t1C"
+        )
+        self.txt_paste.setPlainText(sample_text)
+
     def get_delimiter(self):
         idx = self.combo_delim.currentIndex()
-        delims = [" ", "-", "_", ", ", "/", "", self.txt_custom_delim.text()]
-        return delims[idx] if idx < len(delims) else " "
+        delims = ["", " ", "-", "_", ", ", "/", self.txt_custom_delim.text()]
+        return delims[idx] if idx < len(delims) else ""
+
+    def load_presets_from_file(self):
+        self.preset_file_path = os.path.join(os.path.expanduser("~"), ".excel_set_analyzer_presets.json")
+        self.custom_presets = []
+        if os.path.exists(self.preset_file_path):
+            try:
+                with open(self.preset_file_path, "r", encoding="utf-8") as f:
+                    self.custom_presets = json.load(f)
+            except Exception:
+                self.custom_presets = []
+
+        self.update_preset_combo()
+
+    def update_preset_combo(self):
+        self.combo_custom_presets.blockSignals(True)
+        self.combo_custom_presets.clear()
+        self.combo_custom_presets.addItem("📁 저장된 나만의 프리셋 선택...")
+        for p in self.custom_presets:
+            self.combo_custom_presets.addItem(f"⭐ {p['name']}")
+        self.combo_custom_presets.blockSignals(False)
+
+    def save_presets_to_file(self):
+        try:
+            with open(self.preset_file_path, "w", encoding="utf-8") as f:
+                json.dump(self.custom_presets, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def save_custom_preset(self):
+        prefix = self.txt_prefix.text()
+        suffix = self.txt_suffix.text()
+        if not prefix and not suffix:
+            QMessageBox.warning(self, "경고", "저장할 접두사(Prefix) 또는 접미사(Suffix)를 입력하세요.")
+            return
+
+        name, ok = QInputDialog.getText(self, "프리셋 저장", "나만의 프리셋 이름을 입력하세요:")
+        if ok and name.strip():
+            name = name.strip()
+            self.custom_presets.append({
+                "name": name,
+                "prefix": prefix,
+                "suffix": suffix
+            })
+            self.save_presets_to_file()
+            self.update_preset_combo()
+            self.combo_custom_presets.setCurrentIndex(len(self.custom_presets))
+            ToastNotification.show_toast(self.window(), f"⭐ 프리셋 '{name}'이(가) 저장되었습니다!")
+
+    def delete_custom_preset(self):
+        idx = self.combo_custom_presets.currentIndex()
+        if idx <= 0:
+            return
+
+        preset_idx = idx - 1
+        deleted_name = self.custom_presets[preset_idx]['name']
+        del self.custom_presets[preset_idx]
+        self.save_presets_to_file()
+        self.update_preset_combo()
+        ToastNotification.show_toast(self.window(), f"🗑️ 프리셋 '{deleted_name}'이(가) 삭제되었습니다.")
+
+    def on_custom_preset_selected(self, idx):
+        if idx <= 0 or idx - 1 >= len(self.custom_presets):
+            return
+
+        p = self.custom_presets[idx - 1]
+        self.apply_preset(p.get("prefix", ""), p.get("suffix", ""))
+
+    def apply_preset(self, pref: str, suff: str):
+        self.txt_prefix.setText(pref)
+        self.txt_suffix.setText(suff)
+        self.compute_and_render()
+        self.auto_copy_results()
 
     def compute_and_render(self):
         if not self.concat_raw_rows or not self.selected_indices:
@@ -611,6 +759,8 @@ class ColumnConcatWidget(QWidget):
         delim = self.get_delimiter()
         do_trim = self.chk_trim.isChecked()
         skip_empty = self.chk_skip_empty.isChecked()
+        prefix = self.txt_prefix.text()
+        suffix = self.txt_suffix.text()
 
         def get_col_letter(idx):
             res = ""
@@ -633,7 +783,7 @@ class ColumnConcatWidget(QWidget):
                 h_name = self.concat_headers[col_idx] if col_idx < len(self.concat_headers) else get_col_letter(col_idx)
                 summary_parts.append(f"{h_name}: \"{val}\"")
 
-            concat_val = delim.join(vals)
+            concat_val = prefix + delim.join(vals) + suffix
             results.append((r_idx + 1, concat_val, " | ".join(summary_parts)))
 
         self.concat_results = results
