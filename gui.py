@@ -10,8 +10,22 @@ from PySide6.QtWidgets import (
     QFrame, QTextEdit, QSplashScreen, QProgressBar, QAbstractItemView,
     QGraphicsOpacityEffect, QInputDialog, QSpinBox
 )
-from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QSequentialAnimationGroup
+from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QSequentialAnimationGroup, Signal
 from PySide6.QtGui import QFont, QKeySequence, QShortcut
+
+
+class CustomHeaderView(QHeaderView):
+    """우클릭 컨텍스트 메뉴를 100% 확실하게 팝업시켜주는 QHeaderView 서브클래스"""
+    right_clicked = Signal(int, object)
+
+    def __init__(self, orientation, parent=None):
+        super().__init__(orientation, parent)
+
+    def contextMenuEvent(self, event):
+        logical_index = self.logicalIndexAt(event.pos())
+        if logical_index >= 0:
+            self.right_clicked.emit(logical_index, event.globalPos())
+        event.accept()
 
 
 class ToastNotification(QLabel):
@@ -70,10 +84,18 @@ class ToastNotification(QLabel):
 
 class CopyableTableWidget(QTableWidget):
     """셀 드래그/선택 후 Ctrl+C 누를 때 선택된 셀 영역을 클립보드에 TSV 텍스트로 복사하는 QTableWidget"""
+    cell_right_clicked = Signal(int, object)
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.setSelectionBehavior(QAbstractItemView.SelectItems)
         self.setSelectionMode(QAbstractItemView.ExtendedSelection)
+
+    def contextMenuEvent(self, event):
+        col_idx = self.columnAt(event.pos().x())
+        if col_idx >= 0:
+            self.cell_right_clicked.emit(col_idx, event.globalPos())
+        super().contextMenuEvent(event)
 
     def keyPressEvent(self, event):
         if event.matches(QKeySequence.Copy):
@@ -466,11 +488,32 @@ class ColumnConcatWidget(QWidget):
         self.chk_skip_empty = QCheckBox("빈 셀(Empty)은 구분자 없이 생략")
         self.chk_skip_empty.toggled.connect(self.compute_and_render)
         opt_layout.addWidget(self.chk_skip_empty)
+
+        self.chk_drop_duplicates = QCheckBox("중복 행 제거 (Drop Duplicates)")
+        self.chk_drop_duplicates.toggled.connect(self.compute_and_render)
+        opt_layout.addWidget(self.chk_drop_duplicates)
         left_layout.addWidget(opt_group)
 
         # Group 3: Detected Column Chips
         chips_group = QGroupBox("3. 감지된 컬럼 (클릭하여 병합 순서에 추가)")
-        self.chips_layout = QVBoxLayout(chips_group)
+        chips_main_layout = QVBoxLayout(chips_group)
+
+        col_action_box = QHBoxLayout()
+        btn_add_col = QPushButton("➕ 새 열 추가")
+        btn_add_col.setStyleSheet("background-color: #059669; color: white; font-weight: bold; padding: 4px 8px; font-size: 11px;")
+        btn_add_col.clicked.connect(self.prompt_add_column)
+
+        btn_del_col = QPushButton("🗑️ 열 삭제")
+        btn_del_col.setStyleSheet("background-color: #dc2626; color: white; font-weight: bold; padding: 4px 8px; font-size: 11px;")
+        btn_del_col.clicked.connect(self.prompt_delete_column)
+
+        col_action_box.addWidget(btn_add_col)
+        col_action_box.addWidget(btn_del_col)
+        chips_main_layout.addLayout(col_action_box)
+
+        self.chips_layout = QVBoxLayout()
+        chips_main_layout.addLayout(self.chips_layout)
+
         self.lbl_chips_hint = QLabel("붙여넣은 데이터가 없습니다.")
         self.lbl_chips_hint.setStyleSheet("color: #94a3b8;")
         self.chips_layout.addWidget(self.lbl_chips_hint)
@@ -522,30 +565,19 @@ class ColumnConcatWidget(QWidget):
         # Interactive Data table
         self.table = CopyableTableWidget()
         self.table.setAlternatingRowColors(True)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
-        self.table.horizontalHeader().sectionClicked.connect(self.on_table_header_clicked)
-        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.table.customContextMenuRequested.connect(self.show_table_body_context_menu)
-        self.table.horizontalHeader().setContextMenuPolicy(Qt.CustomContextMenu)
-        self.table.horizontalHeader().customContextMenuRequested.connect(self.show_header_context_menu)
+
+        self.header_view = CustomHeaderView(Qt.Horizontal, self.table)
+        self.header_view.setSectionResizeMode(QHeaderView.Interactive)
+        self.header_view.sectionClicked.connect(self.on_table_header_clicked)
+        self.header_view.right_clicked.connect(self.popup_column_context_menu)
+        self.table.setHorizontalHeader(self.header_view)
+        self.table.cell_right_clicked.connect(self.popup_column_context_menu)
         right_panel.addWidget(self.table)
 
         main_layout.addLayout(right_panel)
 
         # Default sample fill
         self.fill_sample_data()
-
-    def show_table_body_context_menu(self, pos):
-        col_idx_logical = self.table.columnAt(pos.x())
-        if col_idx_logical < 0:
-            return
-        self.popup_column_context_menu(col_idx_logical, self.table.mapToGlobal(pos))
-
-    def show_header_context_menu(self, pos):
-        logical_index = self.table.horizontalHeader().logicalIndexAt(pos)
-        if logical_index < 0:
-            return
-        self.popup_column_context_menu(logical_index, self.table.horizontalHeader().mapToGlobal(pos))
 
     def popup_column_context_menu(self, logical_index: int, global_pos):
         menu = QMenu(self)
@@ -626,6 +658,25 @@ class ColumnConcatWidget(QWidget):
         self.compute_and_render()
         self.auto_copy_results()
         ToastNotification.show_toast(self.window(), f"🗑️ '{del_name}' 열이 삭제되었습니다.")
+
+    def prompt_add_column(self):
+        if not self.concat_headers:
+            QMessageBox.warning(self, "경고", "먼저 데이터를 붙여넣으세요.")
+            return
+        items = [f"[{i+1}] {h}" for i, h in enumerate(self.concat_headers)]
+        item, ok = QInputDialog.getItem(self, "열 추가", "어느 컬럼 우측에 새 열을 추가할까요?:", items, len(items)-1, False)
+        if ok and item:
+            idx = items.index(item)
+            self.insert_column_right(idx)
+
+    def prompt_delete_column(self):
+        if not self.concat_headers:
+            return
+        items = [f"[{i+1}] {h}" for i, h in enumerate(self.concat_headers)]
+        item, ok = QInputDialog.getItem(self, "열 삭제", "삭제할 컬럼 선택:", items, 0, False)
+        if ok and item:
+            idx = items.index(item)
+            self.delete_column_at(idx)
 
     def on_table_header_clicked(self, logical_index: int):
         # Click header to add column to sequence
@@ -861,6 +912,7 @@ class ColumnConcatWidget(QWidget):
         delim = self.get_delimiter()
         do_trim = self.chk_trim.isChecked()
         skip_empty = self.chk_skip_empty.isChecked()
+        drop_duplicates = self.chk_drop_duplicates.isChecked()
         prefix = self.txt_prefix.text()
         suffix = self.txt_suffix.text()
 
@@ -871,6 +923,7 @@ class ColumnConcatWidget(QWidget):
                 idx = (idx // 26) - 1
             return res
 
+        seen_results = set()
         results = []
         for r_idx, row in enumerate(self.concat_raw_rows):
             vals = []
@@ -886,6 +939,11 @@ class ColumnConcatWidget(QWidget):
                 summary_parts.append(f"{h_name}: \"{val}\"")
 
             concat_val = prefix + delim.join(vals) + suffix
+            if drop_duplicates:
+                if concat_val in seen_results:
+                    continue
+                seen_results.add(concat_val)
+
             results.append((r_idx + 1, concat_val, " | ".join(summary_parts)))
 
         self.concat_results = results
