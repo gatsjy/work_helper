@@ -2,10 +2,14 @@
 
 > **IMPORTANT**: This repository is strictly a **Windows Desktop GUI Application** built with **PySide6 (Qt for Python)**.
 
-## 🛑 CRITICAL ARCHITECTURE RULES
-1. **DO NOT CREATE WEB APPLICATIONS**: Do NOT introduce web servers (HTTP server, Flask, FastAPI), HTML/CSS/JS frontend files, or `web/` directories.
+## 🛑 CRITICAL ARCHITECTURE & UI DESIGN RULES
+1. **NO WEB APPLICATIONS**: Do NOT introduce web servers (HTTP server, Flask, FastAPI), HTML/CSS/JS frontend files, or `web/` directories.
 2. **GUI ENTRY POINT**: The primary entry point for this application is [gui.py](file:///c:/Users/KNUH/work_helper/gui.py).
-3. **EXECUTABLE PACKAGING**: The standalone Windows executable is built using PyInstaller:
+3. **STRICT DARK THEME STYLING & ZERO CONTRAST BUGS**:
+   - Every dialog (`QMessageBox`, `QDialog`), popup menu, tooltip, dropdown (`QComboBox`), and input MUST be explicitly styled with dark background (`#1e293b`/`#0f172a`) and bright text (`#f8fafc`/`#ffffff`).
+   - NEVER leave native Windows default popups or un-styled dialogs that cause white-on-white or truncated text bugs.
+   - Always ensure table selection (`QTableWidget::item:selected`) has explicit high-contrast highlight background (`#2563eb`) and text (`#ffffff`).
+4. **EXECUTABLE PACKAGING**: The standalone Windows executable is built using PyInstaller:
    ```bash
    pyinstaller --noconsole --onefile --name "ExcelSetAnalyzer" gui.py
    ```
@@ -13,5 +17,5 @@
 
 ## 🖥️ Application Features (`gui.py`)
 - **100% Clipboard (`Ctrl+V`) Operation**: All operations accept data pasted directly from Excel.
-- **Tab 1: 📊 엑셀 집합 분석 (Set Analyzer)**: Dual clipboard text paste areas for calculating Intersection, A Only, B Only, Symmetric Difference, and Union.
-- **Tab 2: 🔗 컬럼 Concat / 병합 (Column Concat)**: Clipboard TSV table parsing and interactive column chip clicking for row-by-row string concatenation.
+- **Tab 1: 📊 엑셀 집합 분석 (Set Analyzer)**: Dual clipboard text paste areas for calculating Intersection, A Only, B Only, Symmetric Difference, and Union. Instant cell drag block selection & `Ctrl+C` copy (`CopyableTableWidget`).
+- **Tab 2: 🔗 컬럼 Concat / 병합 (Column Concat)**: Clipboard TSV table parsing and interactive column header clicking for row-by-row string concatenation with auto-copy.

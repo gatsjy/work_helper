@@ -7,12 +7,52 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QComboBox, QCheckBox, QTabWidget, QTableWidget,
     QTableWidgetItem, QFileDialog, QMessageBox, QGroupBox, QHeaderView, QLineEdit,
-    QFrame, QTextEdit, QSplashScreen, QProgressBar
+    QFrame, QTextEdit, QSplashScreen, QProgressBar, QAbstractItemView
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QKeySequence
 
 from excel_processor import ExcelSetProcessor
+
+
+class CopyableTableWidget(QTableWidget):
+    """셀 드래그/선택 후 Ctrl+C 누를 때 선택된 셀 영역을 클립보드에 TSV 텍스트로 복사하는 QTableWidget"""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setSelectionBehavior(QAbstractItemView.SelectItems)
+        self.setSelectionMode(QAbstractItemView.ExtendedSelection)
+
+    def keyPressEvent(self, event):
+        if event.matches(QKeySequence.Copy):
+            self.copy_selection_to_clipboard()
+            event.accept()
+        else:
+            super().keyPressEvent(event)
+
+    def copy_selection_to_clipboard(self):
+        selected_indexes = self.selectedIndexes()
+        if not selected_indexes:
+            return
+
+        valid_indexes = [idx for idx in selected_indexes if not self.isRowHidden(idx.row())]
+        if not valid_indexes:
+            return
+
+        rows = sorted(list(set(idx.row() for idx in valid_indexes)))
+        cols = sorted(list(set(idx.column() for idx in valid_indexes)))
+
+        lines = []
+        for r in rows:
+            row_vals = []
+            for c in cols:
+                item = self.item(r, c)
+                row_vals.append(item.text() if item else "")
+            lines.append("\t".join(row_vals))
+
+        tsv_text = "\n".join(lines)
+        if tsv_text:
+            QApplication.clipboard().setText(tsv_text)
+
 
 class SetAnalyzerWidget(QWidget):
     """기존 집합 분석(교집합/차집합/대칭차집합/합집합) 위젯"""
@@ -33,16 +73,16 @@ class SetAnalyzerWidget(QWidget):
         # Left Panel: Controls
         # -------------------------------------------------------------
         left_panel = QFrame()
-        left_panel.setFixedWidth(320)
+        left_panel.setFixedWidth(360)
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(8, 8, 8, 8)
         left_layout.setSpacing(14)
 
         title_box = QHBoxLayout()
         title_label = QLabel("📋 Excel Set Analyzer")
-        title_label.setFont(QFont("맑은 고딕", 14, QFont.Bold))
-        self.btn_sample = QPushButton("💡 샘플 데이터 채우기")
-        self.btn_sample.setStyleSheet("background-color: #334155; color: #94a3b8; font-size: 11px; padding: 4px 8px;")
+        title_label.setFont(QFont("맑은 고딕", 13, QFont.Bold))
+        self.btn_sample = QPushButton("💡 샘플 채우기")
+        self.btn_sample.setStyleSheet("background-color: #334155; color: #94a3b8; font-size: 11px; padding: 4px 6px;")
         self.btn_sample.clicked.connect(self.fill_sample_data)
         title_box.addWidget(title_label)
         title_box.addStretch()
@@ -154,7 +194,7 @@ class SetAnalyzerWidget(QWidget):
         main_layout.addLayout(right_panel)
 
     def create_data_table(self):
-        table = QTableWidget()
+        table = CopyableTableWidget()
         table.setColumnCount(5)
         table.setHorizontalHeaderLabels(["번호", "데이터 값", "구분 (출처)", "A컬럼 존재", "B컬럼 존재"])
         table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
@@ -389,7 +429,7 @@ class ColumnConcatWidget(QWidget):
         right_panel.addWidget(self.txt_search)
 
         # Interactive Data table
-        self.table = QTableWidget()
+        self.table = CopyableTableWidget()
         self.table.setAlternatingRowColors(True)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self.table.horizontalHeader().sectionClicked.connect(self.on_table_header_clicked)
@@ -673,13 +713,23 @@ class SetAnalyzerGUI(QMainWindow):
             QGroupBox::title { subcontrol-origin: margin; left: 10px; color: #94a3b8; }
             QPushButton { background-color: #334155; border: none; border-radius: 4px; padding: 8px; color: white; }
             QPushButton:hover { background-color: #475569; }
-            QComboBox, QLineEdit, QTextEdit { background-color: #1e293b; border: 1px solid #334155; border-radius: 4px; padding: 6px; color: white; }
-            QComboBox QAbstractItemView { background-color: #1e293b; color: white; selection-background-color: #2563eb; selection-color: white; border: 1px solid #334155; }
+            QComboBox, QLineEdit, QTextEdit { background-color: #1e293b; border: 1px solid #334155; border-radius: 4px; padding: 6px; color: #f8fafc; }
+            QComboBox QAbstractItemView { background-color: #1e293b; color: #f8fafc; selection-background-color: #2563eb; selection-color: #ffffff; border: 1px solid #334155; }
+            QComboBox QAbstractItemView::item { background-color: #1e293b; color: #f8fafc; padding: 6px; }
+            QComboBox QAbstractItemView::item:selected { background-color: #2563eb; color: #ffffff; }
             QTabWidget::pane { border: 1px solid #334155; background-color: #1e293b; }
-            QTabBar::tab { background: #0f172a; padding: 10px 18px; border: 1px solid #334155; font-size: 13px; font-weight: bold; }
-            QTabBar::tab:selected { background: #2563eb; color: white; font-weight: bold; }
-            QTableWidget { background-color: #1e293b; gridline-color: #334155; border: none; }
+            QTabBar::tab { background: #0f172a; padding: 10px 18px; border: 1px solid #334155; font-size: 13px; font-weight: bold; color: #cbd5e1; }
+            QTabBar::tab:selected { background: #2563eb; color: #ffffff; font-weight: bold; }
+            QTableWidget { background-color: #1e293b; gridline-color: #334155; border: none; color: #f8fafc; }
+            QTableWidget::item:selected { background-color: #2563eb; color: #ffffff; }
             QHeaderView::section { background-color: #0f172a; color: #cbd5e1; font-weight: bold; border: 1px solid #334155; padding: 6px; }
+
+            /* QMessageBox, QDialog & ToolTip Styling */
+            QMessageBox, QDialog, QMenu { background-color: #1e293b; color: #f8fafc; border: 1px solid #334155; }
+            QMessageBox QLabel, QDialog QLabel { color: #f8fafc; font-size: 10pt; font-weight: bold; background-color: transparent; }
+            QMessageBox QPushButton, QDialog QPushButton { background-color: #2563eb; color: #ffffff; font-weight: bold; border-radius: 4px; padding: 6px 18px; min-width: 65px; }
+            QMessageBox QPushButton:hover, QDialog QPushButton:hover { background-color: #1d4ed8; }
+            QToolTip { background-color: #0f172a; color: #f8fafc; border: 1px solid #334155; padding: 4px; }
         """)
 
 
