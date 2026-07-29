@@ -925,7 +925,7 @@ class ColumnConcatWidget(QWidget):
                     continue
                 seen_results.add(concat_val)
 
-            results.append((r_idx + 1, concat_val, " | ".join(summary_parts)))
+            results.append((r_idx, concat_val, row))
 
         self.concat_results = results
         self.lbl_result_count.setText(f"🔗 병합 결과: {len(results)}행")
@@ -954,24 +954,22 @@ class ColumnConcatWidget(QWidget):
         self.table.horizontalHeader().setStretchLastSection(False)
 
         query = self.txt_search.text().strip().lower()
-        filtered_indices = list(range(len(self.concat_raw_rows)))
+        filtered_results = self.concat_results
         if query:
-            filtered_indices = [
-                i for i in filtered_indices
-                if query in self.concat_results[i][1].lower() or any(query in str(c).lower() for c in self.concat_raw_rows[i])
+            filtered_results = [
+                res for res in self.concat_results
+                if query in res[1].lower() or any(query in str(c).lower() for c in res[2])
             ]
 
-        preview_indices = filtered_indices[:100]
-        self.table.setRowCount(len(preview_indices))
+        preview_results = filtered_results[:500]
+        self.table.setRowCount(len(preview_results))
 
-        for row_i, orig_r_idx in enumerate(preview_indices):
-            concat_val = self.concat_results[orig_r_idx][1]
+        for row_i, (orig_r_idx, concat_val, raw_row) in enumerate(preview_results):
             val_item = QTableWidgetItem(concat_val)
             val_item.setFont(QFont("맑은 고딕", 10, QFont.Bold))
             val_item.setForeground(Qt.GlobalColor.cyan)
             self.table.setItem(row_i, 0, val_item)
 
-            raw_row = self.concat_raw_rows[orig_r_idx]
             for c_i, h_name in enumerate(self.concat_headers):
                 cell_val = raw_row[c_i] if c_i < len(raw_row) else ""
                 cell_item = QTableWidgetItem(cell_val)
