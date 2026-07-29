@@ -496,23 +496,7 @@ class ColumnConcatWidget(QWidget):
 
         # Group 3: Detected Column Chips
         chips_group = QGroupBox("3. 감지된 컬럼 (클릭하여 병합 순서에 추가)")
-        chips_main_layout = QVBoxLayout(chips_group)
-
-        col_action_box = QHBoxLayout()
-        btn_add_col = QPushButton("➕ 새 열 추가")
-        btn_add_col.setStyleSheet("background-color: #059669; color: white; font-weight: bold; padding: 4px 8px; font-size: 11px;")
-        btn_add_col.clicked.connect(self.prompt_add_column)
-
-        btn_del_col = QPushButton("🗑️ 열 삭제")
-        btn_del_col.setStyleSheet("background-color: #dc2626; color: white; font-weight: bold; padding: 4px 8px; font-size: 11px;")
-        btn_del_col.clicked.connect(self.prompt_delete_column)
-
-        col_action_box.addWidget(btn_add_col)
-        col_action_box.addWidget(btn_del_col)
-        chips_main_layout.addLayout(col_action_box)
-
-        self.chips_layout = QVBoxLayout()
-        chips_main_layout.addLayout(self.chips_layout)
+        self.chips_layout = QVBoxLayout(chips_group)
 
         self.lbl_chips_hint = QLabel("붙여넣은 데이터가 없습니다.")
         self.lbl_chips_hint.setStyleSheet("color: #94a3b8;")
@@ -610,10 +594,7 @@ class ColumnConcatWidget(QWidget):
         if col_idx >= len(self.concat_headers):
             return
 
-        new_header_name, ok = QInputDialog.getText(self, "새 열 삽입", f"[{self.concat_headers[col_idx]}] 우측에 삽입할 컬럼 이름:")
-        if not ok:
-            return
-        new_header_name = new_header_name.strip() if new_header_name.strip() else f"새 열_{len(self.concat_headers)+1}"
+        new_header_name = f"새 열_{len(self.concat_headers)+1}"
 
         insert_idx = col_idx + 1
         self.concat_headers.insert(insert_idx, new_header_name)
