@@ -2,11 +2,12 @@
 import sys
 import os
 import re
+import time
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QComboBox, QCheckBox, QTabWidget, QTableWidget,
     QTableWidgetItem, QFileDialog, QMessageBox, QGroupBox, QHeaderView, QLineEdit,
-    QFrame, QTextEdit
+    QFrame, QTextEdit, QSplashScreen, QProgressBar
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
@@ -387,15 +388,20 @@ class ColumnConcatWidget(QWidget):
         self.txt_search.textChanged.connect(self.filter_results)
         right_panel.addWidget(self.txt_search)
 
-        # Data table
+        # Interactive Data table
         self.table = QTableWidget()
-        self.table.setColumnCount(3)
-        self.table.setHorizontalHeaderLabels(["번호", "병합된 결과 값 (Concat Output)", "원본 소스 데이터 요약"])
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.table.setAlternatingRowColors(True)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.table.horizontalHeader().sectionClicked.connect(self.on_table_header_clicked)
         right_panel.addWidget(self.table)
 
         main_layout.addLayout(right_panel)
+
+    def on_table_header_clicked(self, logical_index: int):
+        # Click header to add column to sequence
+        if logical_index >= 2:
+            col_idx = logical_index - 2
+            self.add_column_to_seq(col_idx)
 
     def on_paste_text_changed(self):
         text = self.txt_paste.toPlainText()
@@ -456,11 +462,13 @@ class ColumnConcatWidget(QWidget):
 
         self.update_sequence_label()
         self.compute_and_render()
+        self.auto_copy_results()
 
     def add_column_to_seq(self, col_idx):
         self.selected_indices.append(col_idx)
         self.update_sequence_label()
         self.compute_and_render()
+        self.auto_copy_results()
 
     def reset_sequence(self):
         self.selected_indices = []
@@ -490,6 +498,7 @@ class ColumnConcatWidget(QWidget):
     def on_delim_changed(self, idx):
         self.txt_custom_delim.setVisible(idx == 6)
         self.compute_and_render()
+        self.auto_copy_results()
 
     def get_delimiter(self):
         idx = self.combo_delim.currentIndex()
@@ -536,25 +545,62 @@ class ColumnConcatWidget(QWidget):
         self.render_table()
 
     def render_table(self):
+        def get_col_letter(idx):
+            res = ""
+            while idx >= 0:
+                res = chr((idx % 26) + 65) + res
+                idx = (idx // 26) - 1
+            return res
+
+        # Table headers: 0: 번호, 1: 병합 결과 (Concat Output), 2..N: Original Source Columns
+        headers = ["번호", "✨ 병합 결과 (Concat Output)"]
+        for idx, h_name in enumerate(self.concat_headers):
+            col_let = get_col_letter(idx)
+            # Add sequence tag if selected
+            seq_order = [i+1 for i, s in enumerate(self.selected_indices) if s == idx]
+            seq_prefix = f"[{','.join(map(str, seq_order))}] " if seq_order else "+ "
+            headers.append(f"{seq_prefix}[{col_let}] {h_name}")
+
+        self.table.setColumnCount(len(headers))
+        self.table.setHorizontalHeaderLabels(headers)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+
         query = self.txt_search.text().strip().lower()
-        filtered = self.concat_results
+        filtered_indices = list(range(len(self.concat_raw_rows)))
         if query:
-            filtered = [item for item in self.concat_results if query in item[1].lower() or query in item[2].lower()]
+            filtered_indices = [
+                i for i in filtered_indices
+                if query in self.concat_results[i][1].lower() or any(query in str(c).lower() for c in self.concat_raw_rows[i])
+            ]
 
-        preview_items = filtered[:100]
-        self.table.setRowCount(len(preview_items))
-        for row_i, (idx_num, val_str, summary_str) in enumerate(preview_items):
-            self.table.setItem(row_i, 0, QTableWidgetItem(str(idx_num)))
+        preview_indices = filtered_indices[:100]
+        self.table.setRowCount(len(preview_indices))
 
-            val_item = QTableWidgetItem(val_str)
+        for row_i, orig_r_idx in enumerate(preview_indices):
+            self.table.setItem(row_i, 0, QTableWidgetItem(str(orig_r_idx + 1)))
+
+            concat_val = self.concat_results[orig_r_idx][1]
+            val_item = QTableWidgetItem(concat_val)
             val_item.setFont(QFont("맑은 고딕", 10, QFont.Bold))
             val_item.setForeground(Qt.GlobalColor.cyan)
             self.table.setItem(row_i, 1, val_item)
 
-            self.table.setItem(row_i, 2, QTableWidgetItem(summary_str))
+            raw_row = self.concat_raw_rows[orig_r_idx]
+            for c_i, h_name in enumerate(self.concat_headers):
+                cell_val = raw_row[c_i] if c_i < len(raw_row) else ""
+                cell_item = QTableWidgetItem(cell_val)
+                if c_i in self.selected_indices:
+                    cell_item.setBackground(Qt.GlobalColor.darkBlue)
+                self.table.setItem(row_i, 2 + c_i, cell_item)
 
     def filter_results(self):
         self.render_table()
+
+    def auto_copy_results(self):
+        if self.concat_results:
+            text = "\n".join(item[1] for item in self.concat_results)
+            QApplication.clipboard().setText(text)
+            self.lbl_result_count.setText(f"🔗 병합 결과: {len(self.concat_results)}행 (📋 클립보드 자동 복사 완료!)")
 
     def read_from_clipboard(self):
         text = QApplication.clipboard().text()
@@ -583,6 +629,8 @@ class ColumnConcatWidget(QWidget):
         self.lbl_chips_hint.setStyleSheet("color: #94a3b8;")
         self.chips_layout.addWidget(self.lbl_chips_hint)
         self.table.setRowCount(0)
+        self.table.setColumnCount(3)
+        self.table.setHorizontalHeaderLabels(["번호", "병합된 결과 값 (Concat Output)", "원본 소스 데이터 요약"])
         self.lbl_result_count.setText("🔗 병합 결과: 0행")
 
     def copy_results(self):
@@ -635,10 +683,106 @@ class SetAnalyzerGUI(QMainWindow):
         """)
 
 
+class AppSplashScreen(QSplashScreen):
+    """프로그램 기동 시 로딩 프로그래스 바를 보여주는 스플래시 화면"""
+    def __init__(self):
+        super().__init__()
+        self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground, False)
+        self.resize(440, 240)
+
+        # Center on primary screen
+        screen = QApplication.primaryScreen().geometry()
+        x = (screen.width() - self.width()) // 2
+        y = (screen.height() - self.height()) // 2
+        self.move(x, y)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        frame = QFrame()
+        frame.setStyleSheet("""
+            QFrame {
+                background-color: #0f172a;
+                border: 2px solid #2563eb;
+                border-radius: 12px;
+            }
+        """)
+        frame_layout = QVBoxLayout(frame)
+        frame_layout.setContentsMargins(24, 24, 24, 24)
+        frame_layout.setSpacing(10)
+
+        title_lbl = QLabel("📊 Excel Set Analyzer")
+        title_lbl.setFont(QFont("맑은 고딕", 16, QFont.Bold))
+        title_lbl.setStyleSheet("color: #f8fafc; border: none;")
+        title_lbl.setAlignment(Qt.AlignCenter)
+        frame_layout.addWidget(title_lbl)
+
+        sub_lbl = QLabel("엑셀 집합 분석 & 컬럼 Concat 병합 툴")
+        sub_lbl.setFont(QFont("맑은 고딕", 10))
+        sub_lbl.setStyleSheet("color: #94a3b8; border: none;")
+        sub_lbl.setAlignment(Qt.AlignCenter)
+        frame_layout.addWidget(sub_lbl)
+
+        frame_layout.addStretch()
+
+        self.lbl_status = QLabel("프로그램을 초기화하는 중...")
+        self.lbl_status.setFont(QFont("맑은 고딕", 9))
+        self.lbl_status.setStyleSheet("color: #60a5fa; border: none;")
+        self.lbl_status.setAlignment(Qt.AlignLeft)
+        frame_layout.addWidget(self.lbl_status)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setFixedHeight(12)
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setStyleSheet("""
+            QProgressBar {
+                background-color: #1e293b;
+                border: 1px solid #334155;
+                border-radius: 6px;
+            }
+            QProgressBar::chunk {
+                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2563eb, stop:1 #059669);
+                border-radius: 5px;
+            }
+        """)
+        frame_layout.addWidget(self.progress_bar)
+
+        layout.addWidget(frame)
+
+    def set_progress(self, val: int, message: str):
+        self.progress_bar.setValue(val)
+        self.lbl_status.setText(message)
+        QApplication.processEvents()
+
+
 def run_gui():
     app = QApplication(sys.argv)
+
+    # Launch Splash Screen
+    splash = AppSplashScreen()
+    splash.show()
+
+    steps = [
+        (20, "코어 분석 엔진 및 패키지 로딩 중..."),
+        (45, "PySide6 GUI 컴포넌트 구성 중..."),
+        (70, "클립보드 및 집합 연산 엔진 준비 중..."),
+        (90, "샘플 데이터 및 테마 초기화 중..."),
+        (100, "준비 완료! 메인 화면으로 이동합니다.")
+    ]
+
+    for progress, msg in steps:
+        splash.set_progress(progress, msg)
+        for _ in range(4):
+            QApplication.processEvents()
+            time.sleep(0.04)
+
     window = SetAnalyzerGUI()
     window.show()
+    splash.finish(window)
+
     sys.exit(app.exec())
 
 if __name__ == "__main__":
