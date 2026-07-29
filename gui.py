@@ -8,10 +8,10 @@ from PySide6.QtWidgets import (
     QLabel, QPushButton, QComboBox, QCheckBox, QTabWidget, QTableWidget,
     QTableWidgetItem, QFileDialog, QMessageBox, QGroupBox, QHeaderView, QLineEdit,
     QFrame, QTextEdit, QSplashScreen, QProgressBar, QAbstractItemView,
-    QGraphicsOpacityEffect, QInputDialog
+    QGraphicsOpacityEffect, QInputDialog, QSpinBox
 )
 from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QSequentialAnimationGroup
-from PySide6.QtGui import QFont, QKeySequence
+from PySide6.QtGui import QFont, QKeySequence, QShortcut
 
 from excel_processor import ExcelSetProcessor
 
@@ -251,15 +251,15 @@ class SetAnalyzerWidget(QWidget):
 
     def create_data_table(self):
         table = CopyableTableWidget()
-        table.setColumnCount(5)
-        table.setHorizontalHeaderLabels(["번호", "데이터 값", "구분 (출처)", "A컬럼 존재", "B컬럼 존재"])
-        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        table.setColumnCount(4)
+        table.setHorizontalHeaderLabels(["데이터 값", "구분 (출처)", "A컬럼 존재", "B컬럼 존재"])
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         table.setAlternatingRowColors(True)
         return table
 
     def fill_sample_data(self):
-        sample_a = "AS_ASIS_DEPT\nAS_ASIS_DEPT\nAS_ASIS_DEPT\nAS_ASIS_DEPT\nAS_ASIS_DEPT\nAS_ASIS_DEPT\nAS_ASIS_DEPT\nUSER_ID_01\nUSER_ID_02"
-        sample_b = "ZSUHUSRN\nZSUHUSRN\nZSUHUSRN\nZSUHUSRN\nZSUHUSRN\nZSUHUSRN\nZSUHUSRN\nUSER_ID_01\nUSER_ID_03"
+        sample_a = "USR001\nUSR002\nUSR003\nUSR004\nUSR005"
+        sample_b = "USR003\nUSR004\nUSR005\nUSR006\nUSR007"
         self.txt_paste_a.setPlainText(sample_a)
         self.txt_paste_b.setPlainText(sample_b)
 
@@ -296,17 +296,16 @@ class SetAnalyzerWidget(QWidget):
     def populate_table(self, table: QTableWidget, data_list: list):
         table.setRowCount(len(data_list))
         for idx, item in enumerate(data_list):
-            table.setItem(idx, 0, QTableWidgetItem(str(idx + 1)))
-            table.setItem(idx, 1, QTableWidgetItem(str(item['val'])))
-            table.setItem(idx, 2, QTableWidgetItem(str(item['origin'])))
+            table.setItem(idx, 0, QTableWidgetItem(str(item['val'])))
+            table.setItem(idx, 1, QTableWidgetItem(str(item['origin'])))
 
             item_a = QTableWidgetItem(item['in_a'])
             item_a.setTextAlignment(Qt.AlignCenter)
-            table.setItem(idx, 3, item_a)
+            table.setItem(idx, 2, item_a)
 
             item_b = QTableWidgetItem(item['in_b'])
             item_b.setTextAlignment(Qt.AlignCenter)
-            table.setItem(idx, 4, item_b)
+            table.setItem(idx, 3, item_b)
 
     def filter_table(self, query):
         query = query.strip().lower()
@@ -315,8 +314,8 @@ class SetAnalyzerWidget(QWidget):
             return
 
         for row in range(current_table.rowCount()):
-            val_item = current_table.item(row, 1)
-            origin_item = current_table.item(row, 2)
+            val_item = current_table.item(row, 0)
+            origin_item = current_table.item(row, 1)
 
             match = True
             if query:
@@ -345,8 +344,8 @@ class SetAnalyzerWidget(QWidget):
             return
 
         items = self.analysis_result[tab_key]
-        headers = ["번호", "데이터값", "구분(출처)", "A존재", "B존재"]
-        rows = [f"{idx+1}\t{item['val']}\t{item['origin']}\t{item['in_a']}\t{item['in_b']}" for idx, item in enumerate(items)]
+        headers = ["데이터값", "구분(출처)", "A존재", "B존재"]
+        rows = [f"{item['val']}\t{item['origin']}\t{item['in_a']}\t{item['in_b']}" for item in items]
         text = "\n".join([ "\t".join(headers) ] + rows)
 
         QApplication.clipboard().setText(text)
@@ -407,6 +406,23 @@ class ColumnConcatWidget(QWidget):
         self.chk_header.setChecked(True)
         self.chk_header.toggled.connect(self.on_paste_text_changed)
         opt_layout.addWidget(self.chk_header)
+
+        # 1D Vertical List Reshape Control
+        reshape_box = QHBoxLayout()
+        self.chk_reshape = QCheckBox("1열(세로) 목록 N개 컬럼으로 자동 분할")
+        self.chk_reshape.setChecked(True)
+        self.chk_reshape.toggled.connect(self.on_paste_text_changed)
+
+        self.spin_cols = QSpinBox()
+        self.spin_cols.setRange(1, 50)
+        self.spin_cols.setValue(3)
+        self.spin_cols.setPrefix("컬럼 ")
+        self.spin_cols.setSuffix("개")
+        self.spin_cols.valueChanged.connect(self.on_paste_text_changed)
+
+        reshape_box.addWidget(self.chk_reshape)
+        reshape_box.addWidget(self.spin_cols)
+        opt_layout.addLayout(reshape_box)
 
         opt_layout.addWidget(QLabel("열 간 구분자 (Separator):"))
         self.combo_delim = QComboBox()
@@ -555,8 +571,8 @@ class ColumnConcatWidget(QWidget):
 
     def on_table_header_clicked(self, logical_index: int):
         # Click header to add column to sequence
-        if logical_index >= 2:
-            col_idx = logical_index - 2
+        if logical_index >= 1:
+            col_idx = logical_index - 1
             self.add_column_to_seq(col_idx)
 
     def on_paste_text_changed(self):
@@ -570,15 +586,28 @@ class ColumnConcatWidget(QWidget):
             self.clear_data()
             return
 
-        first_line = lines[0]
-        sep = '\t' if '\t' in first_line else (',' if ',' in first_line else None)
+        first_10_lines = lines[:10]
+        has_tabs = any('\t' in line for line in first_10_lines)
+        has_commas = any(',' in line for line in first_10_lines)
+        has_multi_spaces = any(re.search(r'\s{2,}', line) for line in first_10_lines)
 
-        if sep:
-            parsed = [line.split(sep) for line in lines]
+        # Smart 1D Vertical List Reshaping
+        if not has_tabs and not has_commas and not has_multi_spaces and self.chk_reshape.isChecked():
+            num_cols = self.spin_cols.value()
+            parsed = []
+            for i in range(0, len(lines), num_cols):
+                chunk = [line.strip() for line in lines[i:i + num_cols]]
+                if len(chunk) < num_cols:
+                    chunk.extend([""] * (num_cols - len(chunk)))
+                parsed.append(chunk)
         else:
-            parsed = [re.split(r'\s{2,}', line) for line in lines]
+            sep = '\t' if has_tabs else (',' if has_commas else None)
+            if sep:
+                parsed = [line.split(sep) for line in lines]
+            else:
+                parsed = [re.split(r'\s{2,}', line) for line in lines]
 
-        max_cols = max(len(r) for r in parsed)
+        max_cols = max((len(r) for r in parsed), default=1)
 
         def get_col_letter(idx):
             res = ""
@@ -798,8 +827,8 @@ class ColumnConcatWidget(QWidget):
                 idx = (idx // 26) - 1
             return res
 
-        # Table headers: 0: 번호, 1: 병합 결과 (Concat Output), 2..N: Original Source Columns
-        headers = ["번호", "✨ 병합 결과 (Concat Output)"]
+        # Table headers: 0: 병합 결과 (Concat Output), 1..N: Original Source Columns
+        headers = ["✨ 병합 결과 (Concat Output)"]
         for idx, h_name in enumerate(self.concat_headers):
             col_let = get_col_letter(idx)
             # Add sequence tag if selected
@@ -809,7 +838,7 @@ class ColumnConcatWidget(QWidget):
 
         self.table.setColumnCount(len(headers))
         self.table.setHorizontalHeaderLabels(headers)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
 
         query = self.txt_search.text().strip().lower()
         filtered_indices = list(range(len(self.concat_raw_rows)))
@@ -823,13 +852,11 @@ class ColumnConcatWidget(QWidget):
         self.table.setRowCount(len(preview_indices))
 
         for row_i, orig_r_idx in enumerate(preview_indices):
-            self.table.setItem(row_i, 0, QTableWidgetItem(str(orig_r_idx + 1)))
-
             concat_val = self.concat_results[orig_r_idx][1]
             val_item = QTableWidgetItem(concat_val)
             val_item.setFont(QFont("맑은 고딕", 10, QFont.Bold))
             val_item.setForeground(Qt.GlobalColor.cyan)
-            self.table.setItem(row_i, 1, val_item)
+            self.table.setItem(row_i, 0, val_item)
 
             raw_row = self.concat_raw_rows[orig_r_idx]
             for c_i, h_name in enumerate(self.concat_headers):
@@ -837,7 +864,7 @@ class ColumnConcatWidget(QWidget):
                 cell_item = QTableWidgetItem(cell_val)
                 if c_i in self.selected_indices:
                     cell_item.setBackground(Qt.GlobalColor.darkBlue)
-                self.table.setItem(row_i, 2 + c_i, cell_item)
+                self.table.setItem(row_i, 1 + c_i, cell_item)
 
     def filter_results(self):
         self.render_table()
@@ -876,8 +903,8 @@ class ColumnConcatWidget(QWidget):
         self.lbl_chips_hint.setStyleSheet("color: #94a3b8;")
         self.chips_layout.addWidget(self.lbl_chips_hint)
         self.table.setRowCount(0)
-        self.table.setColumnCount(3)
-        self.table.setHorizontalHeaderLabels(["번호", "병합된 결과 값 (Concat Output)", "원본 소스 데이터 요약"])
+        self.table.setColumnCount(2)
+        self.table.setHorizontalHeaderLabels(["✨ 병합 결과 (Concat Output)", "원본 소스 데이터 요약"])
         self.lbl_result_count.setText("🔗 병합 결과: 0행")
 
     def copy_results(self):
@@ -900,14 +927,21 @@ class SetAnalyzerGUI(QMainWindow):
         self.apply_stylesheet()
 
     def init_ui(self):
-        main_tab_widget = QTabWidget()
-        self.setCentralWidget(main_tab_widget)
+        self.main_tab_widget = QTabWidget()
+        self.setCentralWidget(self.main_tab_widget)
 
         self.set_analyzer_widget = SetAnalyzerWidget()
         self.column_concat_widget = ColumnConcatWidget()
 
-        main_tab_widget.addTab(self.set_analyzer_widget, "📊 엑셀 집합 분석 (Set Analyzer)")
-        main_tab_widget.addTab(self.column_concat_widget, "🔗 컬럼 Concat / 병합 (Ctrl+V)")
+        self.main_tab_widget.addTab(self.set_analyzer_widget, "📊 엑셀 집합 분석 (F1)")
+        self.main_tab_widget.addTab(self.column_concat_widget, "🔗 컬럼 Concat / SQL 쿼리 생성기 (F2)")
+
+        # Keyboard Shortcuts: F1 -> Tab 0, F2 -> Tab 1
+        self.shortcut_f1 = QShortcut(QKeySequence("F1"), self)
+        self.shortcut_f1.activated.connect(lambda: self.main_tab_widget.setCurrentIndex(0))
+
+        self.shortcut_f2 = QShortcut(QKeySequence("F2"), self)
+        self.shortcut_f2.activated.connect(lambda: self.main_tab_widget.setCurrentIndex(1))
 
     def apply_stylesheet(self):
         self.setStyleSheet("""
