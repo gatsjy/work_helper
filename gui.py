@@ -7,12 +7,67 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QComboBox, QCheckBox, QTabWidget, QTableWidget,
     QTableWidgetItem, QFileDialog, QMessageBox, QGroupBox, QHeaderView, QLineEdit,
-    QFrame, QTextEdit, QSplashScreen, QProgressBar, QAbstractItemView
+    QFrame, QTextEdit, QSplashScreen, QProgressBar, QAbstractItemView,
+    QGraphicsOpacityEffect
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QSequentialAnimationGroup
 from PySide6.QtGui import QFont, QKeySequence
 
 from excel_processor import ExcelSetProcessor
+
+
+class ToastNotification(QLabel):
+    """화면 하단에 부드럽게 타올라 떴다가 사라지는 플로팅 토스트 알림 메시지"""
+    def __init__(self, parent_widget, message: str, duration_ms: int = 1800):
+        super().__init__(parent_widget)
+        self.setText(message)
+        self.setFont(QFont("맑은 고딕", 10, QFont.Bold))
+        self.setStyleSheet("""
+            QLabel {
+                background-color: #0f172a;
+                color: #38bdf8;
+                border: 2px solid #0284c7;
+                border-radius: 10px;
+                padding: 10px 22px;
+            }
+        """)
+        self.adjustSize()
+
+        # Center horizontally at the bottom of parent widget
+        parent_rect = parent_widget.rect()
+        x = max(20, (parent_rect.width() - self.width()) // 2)
+        y = max(20, parent_rect.height() - self.height() - 40)
+        self.move(x, y)
+
+        self.opacity_effect = QGraphicsOpacityEffect(self)
+        self.setGraphicsEffect(self.opacity_effect)
+
+        self.anim_fade_in = QPropertyAnimation(self.opacity_effect, b"opacity")
+        self.anim_fade_in.setDuration(250)
+        self.anim_fade_in.setStartValue(0.0)
+        self.anim_fade_in.setEndValue(1.0)
+        self.anim_fade_in.setEasingCurve(QEasingCurve.OutCubic)
+
+        self.anim_fade_out = QPropertyAnimation(self.opacity_effect, b"opacity")
+        self.anim_fade_out.setDuration(450)
+        self.anim_fade_out.setStartValue(1.0)
+        self.anim_fade_out.setEndValue(0.0)
+        self.anim_fade_out.setEasingCurve(QEasingCurve.InCubic)
+
+        self.group = QSequentialAnimationGroup(self)
+        self.group.addAnimation(self.anim_fade_in)
+        self.group.addPause(duration_ms)
+        self.group.addAnimation(self.anim_fade_out)
+        self.group.finished.connect(self.deleteLater)
+
+        self.show()
+        self.raise_()
+        self.group.start()
+
+    @staticmethod
+    def show_toast(parent_widget, message: str, duration_ms: int = 1800):
+        if parent_widget:
+            ToastNotification(parent_widget, message, duration_ms)
 
 
 class CopyableTableWidget(QTableWidget):
@@ -52,6 +107,7 @@ class CopyableTableWidget(QTableWidget):
         tsv_text = "\n".join(lines)
         if tsv_text:
             QApplication.clipboard().setText(tsv_text)
+            ToastNotification.show_toast(self.window(), f"📋 선택된 {len(valid_indexes)}개 셀 데이터가 클립보드에 복사되었습니다!")
 
 
 class SetAnalyzerWidget(QWidget):
@@ -280,7 +336,7 @@ class SetAnalyzerWidget(QWidget):
         text = "\n".join(item['val'] for item in items)
 
         QApplication.clipboard().setText(text)
-        QMessageBox.information(self, "클립보드 복사", f"📋 데이터 값 {len(items)}개가 클립보드에 복사되었습니다!\n(Ctrl+V로 엑셀에 붙여넣으세요)")
+        ToastNotification.show_toast(self.window(), f"📋 데이터 값 {len(items)}개가 클립보드에 복사되었습니다!")
 
     def copy_table_tsv(self):
         curr_tab_idx = self.tabs.currentIndex()
@@ -294,7 +350,7 @@ class SetAnalyzerWidget(QWidget):
         text = "\n".join([ "\t".join(headers) ] + rows)
 
         QApplication.clipboard().setText(text)
-        QMessageBox.information(self, "클립보드 복사", f"📊 표 데이터 {len(items)}행이 클립보드에 복사되었습니다!\n(Ctrl+V로 엑셀에 붙여넣으세요)")
+        ToastNotification.show_toast(self.window(), f"📊 표 데이터 {len(items)}행이 클립보드에 복사되었습니다!")
 
 
 class ColumnConcatWidget(QWidget):
@@ -641,6 +697,7 @@ class ColumnConcatWidget(QWidget):
             text = "\n".join(item[1] for item in self.concat_results)
             QApplication.clipboard().setText(text)
             self.lbl_result_count.setText(f"🔗 병합 결과: {len(self.concat_results)}행 (📋 클립보드 자동 복사 완료!)")
+            ToastNotification.show_toast(self.window(), f"🔗 병합 결과 {len(self.concat_results)}행이 클립보드에 복사되었습니다!")
 
     def read_from_clipboard(self):
         text = QApplication.clipboard().text()
@@ -680,10 +737,7 @@ class ColumnConcatWidget(QWidget):
 
         text = "\n".join(item[1] for item in self.concat_results)
         QApplication.clipboard().setText(text)
-        QMessageBox.information(
-            self, "클립보드 복사",
-            f"📋 병합 결과 {len(self.concat_results)}행이 클립보드에 복사되었습니다!\n(Ctrl+V로 엑셀에 붙여넣으세요)"
-        )
+        ToastNotification.show_toast(self.window(), f"📋 병합 결과 {len(self.concat_results)}행이 클립보드에 복사되었습니다!")
 
 
 class SetAnalyzerGUI(QMainWindow):
@@ -734,10 +788,10 @@ class SetAnalyzerGUI(QMainWindow):
 
 
 class AppSplashScreen(QSplashScreen):
-    """프로그램 기동 시 로딩 프로그래스 바를 보여주는 스플래시 화면"""
+    """프로그램 기동 시 로딩 프로그래스 바를 화면 맨 앞에 보여주는 스플래시 화면"""
     def __init__(self):
         super().__init__()
-        self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
+        self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint | Qt.SplashScreen)
         self.setAttribute(Qt.WA_TranslucentBackground, False)
         self.resize(440, 240)
 
@@ -811,9 +865,11 @@ class AppSplashScreen(QSplashScreen):
 def run_gui():
     app = QApplication(sys.argv)
 
-    # Launch Splash Screen
+    # Launch Splash Screen (force foreground popup)
     splash = AppSplashScreen()
     splash.show()
+    splash.raise_()
+    splash.activateWindow()
 
     steps = [
         (20, "코어 분석 엔진 및 패키지 로딩 중..."),
@@ -830,8 +886,21 @@ def run_gui():
             time.sleep(0.04)
 
     window = SetAnalyzerGUI()
+    # Bring main window to absolute front of screen on launch
+    window.setWindowFlags(window.windowFlags() | Qt.WindowStaysOnTopHint)
     window.show()
+    window.raise_()
+    window.activateWindow()
     splash.finish(window)
+
+    # Reset WindowStaysOnTopHint after 600ms so user can use window normally
+    def reset_top_hint():
+        window.setWindowFlags(window.windowFlags() & ~Qt.WindowStaysOnTopHint)
+        window.show()
+        window.raise_()
+        window.activateWindow()
+
+    QTimer.singleShot(600, reset_top_hint)
 
     sys.exit(app.exec())
 
