@@ -406,23 +406,6 @@ class ColumnConcatWidget(QWidget):
         self.chk_header.toggled.connect(self.on_paste_text_changed)
         opt_layout.addWidget(self.chk_header)
 
-        # 1D Vertical List Reshape Control
-        reshape_box = QHBoxLayout()
-        self.chk_reshape = QCheckBox("1열(세로) 목록 N개 컬럼으로 자동 분할")
-        self.chk_reshape.setChecked(True)
-        self.chk_reshape.toggled.connect(self.on_paste_text_changed)
-
-        self.spin_cols = QSpinBox()
-        self.spin_cols.setRange(1, 50)
-        self.spin_cols.setValue(3)
-        self.spin_cols.setPrefix("컬럼 ")
-        self.spin_cols.setSuffix("개")
-        self.spin_cols.valueChanged.connect(self.on_paste_text_changed)
-
-        reshape_box.addWidget(self.chk_reshape)
-        reshape_box.addWidget(self.spin_cols)
-        opt_layout.addLayout(reshape_box)
-
         opt_layout.addWidget(QLabel("열 간 구분자 (Separator):"))
         self.combo_delim = QComboBox()
         self.combo_delim.addItems([
@@ -667,23 +650,12 @@ class ColumnConcatWidget(QWidget):
         first_10_lines = lines[:10]
         has_tabs = any('\t' in line for line in first_10_lines)
         has_commas = any(',' in line for line in first_10_lines)
-        has_multi_spaces = any(re.search(r'\s{2,}', line) for line in first_10_lines)
 
-        # Smart 1D Vertical List Reshaping
-        if not has_tabs and not has_commas and not has_multi_spaces and self.chk_reshape.isChecked():
-            num_cols = self.spin_cols.value()
-            parsed = []
-            for i in range(0, len(lines), num_cols):
-                chunk = [line.strip() for line in lines[i:i + num_cols]]
-                if len(chunk) < num_cols:
-                    chunk.extend([""] * (num_cols - len(chunk)))
-                parsed.append(chunk)
+        sep = '\t' if has_tabs else (',' if has_commas else None)
+        if sep:
+            parsed = [line.split(sep) for line in lines]
         else:
-            sep = '\t' if has_tabs else (',' if has_commas else None)
-            if sep:
-                parsed = [line.split(sep) for line in lines]
-            else:
-                parsed = [re.split(r'\s{2,}', line) for line in lines]
+            parsed = [re.split(r'\s{2,}', line) for line in lines]
 
         max_cols = max((len(r) for r in parsed), default=1)
 
