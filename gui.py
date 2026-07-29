@@ -361,7 +361,6 @@ class ColumnConcatWidget(QWidget):
         self.concat_results = []
 
         self.init_ui()
-        self.load_presets_from_file()
 
     def init_ui(self):
         main_layout = QHBoxLayout(self)
@@ -458,25 +457,6 @@ class ColumnConcatWidget(QWidget):
         preset_box.addWidget(btn_preset_in)
         preset_box.addWidget(btn_preset_semi)
         opt_layout.addLayout(preset_box)
-
-        # Custom Saved Presets
-        opt_layout.addWidget(QLabel("나만의 커스텀 프리셋 저장/관리:"))
-        custom_preset_layout = QHBoxLayout()
-        self.combo_custom_presets = QComboBox()
-        self.combo_custom_presets.currentIndexChanged.connect(self.on_custom_preset_selected)
-
-        btn_add_preset = QPushButton("➕ 저장")
-        btn_add_preset.setStyleSheet("background-color: #059669; color: white; font-weight: bold; padding: 4px 8px;")
-        btn_add_preset.clicked.connect(self.save_custom_preset)
-
-        btn_del_preset = QPushButton("🗑️ 삭제")
-        btn_del_preset.setStyleSheet("background-color: #dc2626; color: white; font-weight: bold; padding: 4px 8px;")
-        btn_del_preset.clicked.connect(self.delete_custom_preset)
-
-        custom_preset_layout.addWidget(self.combo_custom_presets, 1)
-        custom_preset_layout.addWidget(btn_add_preset)
-        custom_preset_layout.addWidget(btn_del_preset)
-        opt_layout.addLayout(custom_preset_layout)
 
         self.chk_trim = QCheckBox("각 데이터 앞뒤 공백 제거 (Trim)")
         self.chk_trim.setChecked(True)
@@ -651,11 +631,38 @@ class ColumnConcatWidget(QWidget):
         has_tabs = any('\t' in line for line in first_10_lines)
         has_commas = any(',' in line for line in first_10_lines)
 
-        sep = '\t' if has_tabs else (',' if has_commas else None)
-        if sep:
+        if has_tabs or has_commas:
+            sep = '\t' if has_tabs else ','
             parsed = [line.split(sep) for line in lines]
         else:
-            parsed = [re.split(r'\s{2,}', line) for line in lines]
+            # Smart 1D Vertical Stream Auto-Detection
+            num_lines = len(lines)
+            detected_k = 0
+            for k in range(2, 31):
+                if num_lines >= k * 2:
+                    matches = 0
+                    checks = 0
+                    for idx in range(k, num_lines - k, k):
+                        checks += 1
+                        if lines[idx] == lines[idx + k]:
+                            matches += 1
+                    if checks >= 2 and (matches / checks) >= 0.5:
+                        detected_k = k
+                        break
+
+            if detected_k >= 2:
+                parsed = []
+                for i in range(0, num_lines, detected_k):
+                    chunk = lines[i:i + detected_k]
+                    if len(chunk) < detected_k:
+                        chunk.extend([""] * (detected_k - len(chunk)))
+                    parsed.append(chunk)
+            else:
+                multi_space_lines = [l for l in lines[:20] if re.search(r'\s{2,}', l)]
+                if len(multi_space_lines) >= min(len(lines), 4):
+                    parsed = [re.split(r'\s{2,}', line) for line in lines]
+                else:
+                    parsed = [[line] for line in lines]
 
         max_cols = max((len(r) for r in parsed), default=1)
 
@@ -818,72 +825,6 @@ class ColumnConcatWidget(QWidget):
         idx = self.combo_delim.currentIndex()
         delims = [" ", "", "-", "_", ", ", "/", self.txt_custom_delim.text()]
         return delims[idx] if idx < len(delims) else " "
-
-    def load_presets_from_file(self):
-        self.preset_file_path = os.path.join(os.path.expanduser("~"), ".excel_set_analyzer_presets.json")
-        self.custom_presets = []
-        if os.path.exists(self.preset_file_path):
-            try:
-                with open(self.preset_file_path, "r", encoding="utf-8") as f:
-                    self.custom_presets = json.load(f)
-            except Exception:
-                self.custom_presets = []
-
-        self.update_preset_combo()
-
-    def update_preset_combo(self):
-        self.combo_custom_presets.blockSignals(True)
-        self.combo_custom_presets.clear()
-        self.combo_custom_presets.addItem("📁 저장된 나만의 프리셋 선택...")
-        for p in self.custom_presets:
-            self.combo_custom_presets.addItem(f"⭐ {p['name']}")
-        self.combo_custom_presets.blockSignals(False)
-
-    def save_presets_to_file(self):
-        try:
-            with open(self.preset_file_path, "w", encoding="utf-8") as f:
-                json.dump(self.custom_presets, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
-
-    def save_custom_preset(self):
-        prefix = self.txt_prefix.text()
-        suffix = self.txt_suffix.text()
-        if not prefix and not suffix:
-            QMessageBox.warning(self, "경고", "저장할 접두사(Prefix) 또는 접미사(Suffix)를 입력하세요.")
-            return
-
-        name, ok = QInputDialog.getText(self, "프리셋 저장", "나만의 프리셋 이름을 입력하세요:")
-        if ok and name.strip():
-            name = name.strip()
-            self.custom_presets.append({
-                "name": name,
-                "prefix": prefix,
-                "suffix": suffix
-            })
-            self.save_presets_to_file()
-            self.update_preset_combo()
-            self.combo_custom_presets.setCurrentIndex(len(self.custom_presets))
-            ToastNotification.show_toast(self.window(), f"⭐ 프리셋 '{name}'이(가) 저장되었습니다!")
-
-    def delete_custom_preset(self):
-        idx = self.combo_custom_presets.currentIndex()
-        if idx <= 0:
-            return
-
-        preset_idx = idx - 1
-        deleted_name = self.custom_presets[preset_idx]['name']
-        del self.custom_presets[preset_idx]
-        self.save_presets_to_file()
-        self.update_preset_combo()
-        ToastNotification.show_toast(self.window(), f"🗑️ 프리셋 '{deleted_name}'이(가) 삭제되었습니다.")
-
-    def on_custom_preset_selected(self, idx):
-        if idx <= 0 or idx - 1 >= len(self.custom_presets):
-            return
-
-        p = self.custom_presets[idx - 1]
-        self.apply_preset(p.get("prefix", ""), p.get("suffix", ""))
 
     def apply_preset(self, pref: str, suff: str):
         self.txt_prefix.setText(pref)

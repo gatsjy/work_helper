@@ -23,6 +23,7 @@
 
 ### 5. 🔗 인터랙티브 컬럼 Concat / SQL 쿼리 생성기 (Column Concat 탭)
 - **인터랙티브 컬럼 선택 & 전체 자동 병합**: 엑셀 표 데이터 붙여넣기 시 원본 컬럼이 테이블에 자동 배치되며, 붙여넣는 즉시 들어온 모든 컬럼이 전체 선택되어 1초 만에 실시간 병합 결과 생성.
+- **스마트 1열 목록 패턴 자동 감지**: 1D 세로 형태의 데이터(예: 5개 항목 반복 구조)를 붙여넣어도 패턴을 자동 파악하여 N개 컬럼으로 깨짐 없이 깔끔하게 병합.
 - **스마트 컬럼 칩 토스트 (원클릭 선택/해제)**:
   - 원하는 컬럼 버튼을 누르면 이전을 깔끔하게 Clear하고 해당 컬럼만 병합.
   - 선택된 컬럼 칩은 파란색 체크 표시(`✓ [1] [A] 단지명`)로 직관적 렌더링.
@@ -35,8 +36,6 @@
   - `[SQL SELECT]`: `SELECT * FROM [컬럼];`
   - `[SQL IN ('v',)]`: `'[컬럼]',` (WHERE IN 조건절 목록 생성)
   - `[; 세미콜론]`: `[컬럼];`
-- **⭐ 나만의 커스텀 프리셋 저장/관리 (Custom Preset Manager)**:
-  - 자주 쓰는 쿼리 문법 및 접두사/접미사를 나만의 프리셋 이름으로 영구 저장 (`➕ 저장`, `🗑️ 삭제`, `📁 저장된 나만의 프리셋 선택`).
 
 ### 6. 📊 엑셀 집합 비교 분석 (Set Analyzer 탭)
 - **클립보드(`Ctrl+V`) 전용 연산**: 데이터 A/B 창에 `Ctrl+V`로 붙여넣는 순간 버튼 클릭 없이 즉시 집합 연산 수행.
@@ -73,5 +72,5 @@ python gui.py
 
 ### .exe 재빌드 커맨드
 ```bash
-pyinstaller --noconsole --onefile --name "ExcelSetAnalyzer" gui.py
+pyinstaller --noconsole --onefile --name "ExcelSetAnalyzer" --exclude-module matplotlib --exclude-module PIL --exclude-module Pillow --exclude-module sqlalchemy --exclude-module psycopg2 --exclude-module lxml --exclude-module scipy --exclude-module paramiko --exclude-module cryptography --exclude-module tkinter --exclude-module PySide6.QtWebEngineCore --exclude-module PySide6.Qt3DAnimation --exclude-module PySide6.QtDesigner --exclude-module PySide6.QtQuick --exclude-module PySide6.QtQml --exclude-module PySide6.QtSql --exclude-module PySide6.QtTest --exclude-module PySide6.QtMultimedia gui.py
 ```
