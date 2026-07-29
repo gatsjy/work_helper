@@ -13,8 +13,6 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QSequentialAnimationGroup
 from PySide6.QtGui import QFont, QKeySequence, QShortcut
 
-from excel_processor import ExcelSetProcessor
-
 
 class ToastNotification(QLabel):
     """화면 하단에 부드럽게 타올라 떴다가 사라지는 플로팅 토스트 알림 메시지"""
@@ -273,6 +271,7 @@ class SetAnalyzerWidget(QWidget):
                 self.tables[key].setRowCount(0)
             return
 
+        from excel_processor import ExcelSetProcessor
         self.analysis_result = ExcelSetProcessor.analyze_raw_text_sets(
             raw_text_a=raw_text_a,
             raw_text_b=raw_text_b,
@@ -562,12 +561,91 @@ class ColumnConcatWidget(QWidget):
         self.table.setAlternatingRowColors(True)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self.table.horizontalHeader().sectionClicked.connect(self.on_table_header_clicked)
+        self.table.horizontalHeader().setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.horizontalHeader().customContextMenuRequested.connect(self.show_header_context_menu)
         right_panel.addWidget(self.table)
 
         main_layout.addLayout(right_panel)
 
         # Default sample fill
         self.fill_sample_data()
+
+    def show_header_context_menu(self, pos):
+        logical_index = self.table.horizontalHeader().logicalIndexAt(pos)
+        if logical_index < 0:
+            return
+
+        menu = QMenu(self)
+        if logical_index == 0:
+            act_copy = menu.addAction("📋 병합 결과 전체 복사 (Ctrl+C)")
+            act = menu.exec(self.table.horizontalHeader().mapToGlobal(pos))
+            if act == act_copy:
+                self.copy_results()
+        else:
+            col_idx = logical_index - 1
+            h_name = self.concat_headers[col_idx] if col_idx < len(self.concat_headers) else f"열 {col_idx}"
+
+            act_insert = menu.addAction(f"➕ [{h_name}] 우측에 새 열 삽입")
+            act_delete = menu.addAction(f"🗑️ [{h_name}] 열 삭제")
+
+            act = menu.exec(self.table.horizontalHeader().mapToGlobal(pos))
+            if act == act_insert:
+                self.insert_column_right(col_idx)
+            elif act == act_delete:
+                self.delete_column_at(col_idx)
+
+    def insert_column_right(self, col_idx: int):
+        if col_idx >= len(self.concat_headers):
+            return
+
+        new_header_name, ok = QInputDialog.getText(self, "새 열 삽입", f"[{self.concat_headers[col_idx]}] 우측에 삽입할 컬럼 이름:")
+        if not ok:
+            return
+        new_header_name = new_header_name.strip() if new_header_name.strip() else f"새 열_{len(self.concat_headers)+1}"
+
+        insert_idx = col_idx + 1
+        self.concat_headers.insert(insert_idx, new_header_name)
+        for row in self.concat_raw_rows:
+            row.insert(insert_idx, "")
+
+        new_seq = []
+        for idx in self.selected_indices:
+            if idx >= insert_idx:
+                new_seq.append(idx + 1)
+            else:
+                new_seq.append(idx)
+        new_seq.append(insert_idx)
+        self.selected_indices = new_seq
+
+        self.render_column_chips()
+        self.update_sequence_label()
+        self.compute_and_render()
+        self.auto_copy_results()
+        ToastNotification.show_toast(self.window(), f"➕ '{new_header_name}' 열이 우측에 삽입되었습니다.")
+
+    def delete_column_at(self, col_idx: int):
+        if col_idx >= len(self.concat_headers):
+            return
+
+        del_name = self.concat_headers[col_idx]
+        del self.concat_headers[col_idx]
+        for row in self.concat_raw_rows:
+            if col_idx < len(row):
+                del row[col_idx]
+
+        new_seq = []
+        for idx in self.selected_indices:
+            if idx < col_idx:
+                new_seq.append(idx)
+            elif idx > col_idx:
+                new_seq.append(idx - 1)
+        self.selected_indices = new_seq
+
+        self.render_column_chips()
+        self.update_sequence_label()
+        self.compute_and_render()
+        self.auto_copy_results()
+        ToastNotification.show_toast(self.window(), f"🗑️ '{del_name}' 열이 삭제되었습니다.")
 
     def on_table_header_clicked(self, logical_index: int):
         # Click header to add column to sequence
@@ -627,36 +705,99 @@ class ColumnConcatWidget(QWidget):
             self.concat_headers = [f"열 {get_col_letter(i)}" for i in range(max_cols)]
             self.concat_raw_rows = parsed
 
-        # Clear existing chip buttons
+        self.selected_indices = list(range(len(self.concat_headers)))
+        self.is_custom_sequence = False
+
+        self.render_column_chips()
+        self.update_sequence_label()
+        self.compute_and_render()
+        self.auto_copy_results()
+
+    def render_column_chips(self):
         while self.chips_layout.count():
             item = self.chips_layout.takeAt(0)
             widget = item.widget()
             if widget:
                 widget.deleteLater()
 
-        # Add chip buttons
-        for idx, h_name in enumerate(self.concat_headers):
-            col_let = get_col_letter(idx)
-            btn = QPushButton(f"+ [{col_let}] {h_name}")
-            btn.setStyleSheet("background-color: #1e3a8a; color: #93c5fd; text-align: left; padding: 6px;")
-            btn.clicked.connect(lambda checked=False, col_idx=idx: self.add_column_to_seq(col_idx))
-            self.chips_layout.addWidget(btn)
+        if not self.concat_headers:
+            self.lbl_chips_hint = QLabel("붙여넣은 데이터가 없습니다.")
+            self.lbl_chips_hint.setStyleSheet("color: #94a3b8;")
+            self.chips_layout.addWidget(self.lbl_chips_hint)
+            return
 
-        if not self.selected_indices and len(self.concat_headers) > 0:
-            self.selected_indices = [0, 1] if len(self.concat_headers) > 1 else [0]
+        def get_col_letter(idx):
+            res = ""
+            while idx >= 0:
+                res = chr((idx % 26) + 65) + res
+                idx = (idx // 26) - 1
+            return res
 
-        self.update_sequence_label()
-        self.compute_and_render()
-        self.auto_copy_results()
+        chips_sub_layout = QVBoxLayout()
+        chips_sub_layout.setSpacing(6)
 
-    def add_column_to_seq(self, col_idx):
-        self.selected_indices.append(col_idx)
+        for col_idx, h_name in enumerate(self.concat_headers):
+            col_let = get_col_letter(col_idx)
+            is_selected = col_idx in self.selected_indices
+            if is_selected:
+                seq_pos = self.selected_indices.index(col_idx) + 1
+                btn_text = f"✓ [{seq_pos}] [{col_let}] {h_name}"
+                btn_style = """
+                    QPushButton {
+                        background-color: #2563eb;
+                        color: #ffffff;
+                        border: 1px solid #3b82f6;
+                        border-radius: 6px;
+                        padding: 6px 12px;
+                        text-align: left;
+                        font-weight: bold;
+                    }
+                    QPushButton:hover {
+                        background-color: #1d4ed8;
+                    }
+                """
+            else:
+                btn_text = f"+ [{col_let}] {h_name}"
+                btn_style = """
+                    QPushButton {
+                        background-color: #1e293b;
+                        color: #94a3b8;
+                        border: 1px solid #334155;
+                        border-radius: 6px;
+                        padding: 6px 12px;
+                        text-align: left;
+                    }
+                    QPushButton:hover {
+                        background-color: #334155;
+                        color: #ffffff;
+                    }
+                """
+            btn = QPushButton(btn_text)
+            btn.setStyleSheet(btn_style)
+            btn.clicked.connect(lambda _, c=col_idx: self.add_column_to_seq(c))
+            chips_sub_layout.addWidget(btn)
+
+        self.chips_layout.addLayout(chips_sub_layout)
+
+    def add_column_to_seq(self, col_idx: int):
+        if not self.is_custom_sequence:
+            self.selected_indices = [col_idx]
+            self.is_custom_sequence = True
+        else:
+            if col_idx in self.selected_indices:
+                self.selected_indices.remove(col_idx)
+            else:
+                self.selected_indices.append(col_idx)
+
+        self.render_column_chips()
         self.update_sequence_label()
         self.compute_and_render()
         self.auto_copy_results()
 
     def reset_sequence(self):
         self.selected_indices = []
+        self.is_custom_sequence = True
+        self.render_column_chips()
         self.update_sequence_label()
         self.compute_and_render()
 
@@ -955,15 +1096,25 @@ class SetAnalyzerGUI(QMainWindow):
             QComboBox QAbstractItemView { background-color: #1e293b; color: #f8fafc; selection-background-color: #2563eb; selection-color: #ffffff; border: 1px solid #334155; }
             QComboBox QAbstractItemView::item { background-color: #1e293b; color: #f8fafc; padding: 6px; }
             QComboBox QAbstractItemView::item:selected { background-color: #2563eb; color: #ffffff; }
+            QSpinBox { background-color: #1e293b; border: 1px solid #334155; border-radius: 4px; padding: 4px 6px; color: #f8fafc; font-weight: bold; }
+            QSpinBox::up-button, QSpinBox::down-button { background-color: #334155; border: 1px solid #475569; border-radius: 2px; }
+            QSpinBox::up-button:hover, QSpinBox::down-button:hover { background-color: #2563eb; }
+
             QTabWidget::pane { border: 1px solid #334155; background-color: #1e293b; }
             QTabBar::tab { background: #0f172a; padding: 10px 18px; border: 1px solid #334155; font-size: 13px; font-weight: bold; color: #cbd5e1; }
             QTabBar::tab:selected { background: #2563eb; color: #ffffff; font-weight: bold; }
+
+            /* Table & Corner Styling (Fix Gray Corner Bug) */
             QTableWidget { background-color: #1e293b; gridline-color: #334155; border: none; color: #f8fafc; }
             QTableWidget::item:selected { background-color: #2563eb; color: #ffffff; }
+            QTableCornerButton::section { background-color: #0f172a; border: 1px solid #334155; }
+            QHeaderView { background-color: #0f172a; border: none; }
             QHeaderView::section { background-color: #0f172a; color: #cbd5e1; font-weight: bold; border: 1px solid #334155; padding: 6px; }
 
             /* QMessageBox, QDialog & ToolTip Styling */
             QMessageBox, QDialog, QMenu { background-color: #1e293b; color: #f8fafc; border: 1px solid #334155; }
+            QMenu::item { padding: 8px 20px; border-radius: 4px; }
+            QMenu::item:selected { background-color: #2563eb; color: #ffffff; }
             QMessageBox QLabel, QDialog QLabel { color: #f8fafc; font-size: 10pt; font-weight: bold; background-color: transparent; }
             QMessageBox QPushButton, QDialog QPushButton { background-color: #2563eb; color: #ffffff; font-weight: bold; border-radius: 4px; padding: 6px 18px; min-width: 65px; }
             QMessageBox QPushButton:hover, QDialog QPushButton:hover { background-color: #1d4ed8; }
