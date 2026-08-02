@@ -1140,7 +1140,7 @@ class TodoListWidget(QWidget):
 
         for f_key, btn in self.filter_buttons.items():
             btn.setCheckable(True)
-            btn.clicked.connect(lambda _, key=f_key: self.set_filter(key))
+            btn.clicked.connect(self.make_filter_slot(f_key))
             filter_box.addWidget(btn)
 
         self.btn_filter_today.setChecked(True)
@@ -1163,11 +1163,15 @@ class TodoListWidget(QWidget):
         self.table.setColumnCount(6)
         self.table.setHorizontalHeaderLabels(["선택/완료", "우선순위", "카테고리", "할 일 내용", "마감일 / 이월 뱃지", "관리"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
         self.table.horizontalHeader().setStretchLastSection(False)
         self.table.setAlternatingRowColors(True)
 
         main_layout.addWidget(self.table)
         self.update_filter_button_styles()
+
+    def make_filter_slot(self, filter_key):
+        return lambda checked=False: self.set_filter(filter_key)
 
     def set_filter(self, filter_key):
         self.current_filter = filter_key
@@ -1194,7 +1198,16 @@ class TodoListWidget(QWidget):
         self.manager.add_task(title=title, category=cat, priority=priority)
         self.txt_title.clear()
         ToastNotification.show_toast(self.window(), f"➕ '{title}' 할 일이 추가되었습니다.")
-        self.load_and_render()
+
+        # Reset search/category and set filter to today so new task is immediately visible
+        self.txt_search.blockSignals(True)
+        self.txt_search.clear()
+        self.txt_search.blockSignals(False)
+        self.combo_filter_cat.blockSignals(True)
+        self.combo_filter_cat.setCurrentIndex(0)
+        self.combo_filter_cat.blockSignals(False)
+
+        self.set_filter("today")
 
     def toggle_task(self, task_id):
         task = self.manager.toggle_complete(task_id)
@@ -1306,6 +1319,7 @@ class TodoListWidget(QWidget):
             self.table.setIndexWidget(self.table.model().index(row_i, 5), act_widget)
 
         self.table.resizeColumnsToContents()
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
 
 
 class SetAnalyzerGUI(QMainWindow):
@@ -1329,27 +1343,7 @@ class SetAnalyzerGUI(QMainWindow):
         self.main_tab_widget.addTab(self.column_concat_widget, "🔗 컬럼 Concat / SQL 쿼리 생성기 (F2)")
         self.main_tab_widget.addTab(self.todo_list_widget, "📝 스마트 Todo List (F3)")
 
-        # Program Close / Exit Button on top right corner of Tab Widget
-        btn_exit = QPushButton("❌ 프로그램 종료")
-        btn_exit.setStyleSheet("""
-            QPushButton {
-                background-color: #dc2626;
-                color: white;
-                font-weight: bold;
-                padding: 6px 14px;
-                font-size: 12px;
-                border-radius: 4px;
-                margin-right: 6px;
-            }
-            QPushButton:hover {
-                background-color: #b91c1c;
-            }
-        """)
-        btn_exit.setToolTip("프로그램을 종료합니다 (Ctrl+Q)")
-        btn_exit.clicked.connect(self.close_application)
-        self.main_tab_widget.setCornerWidget(btn_exit, Qt.TopRightCorner)
-
-        # Keyboard Shortcuts: F1 -> Tab 0, F2 -> Tab 1, F3 -> Tab 2, Ctrl+Q -> Exit
+        # Keyboard Shortcuts: F1 -> Tab 0, F2 -> Tab 1, F3 -> Tab 2
         self.shortcut_f1 = QShortcut(QKeySequence("F1"), self)
         self.shortcut_f1.activated.connect(lambda: self.main_tab_widget.setCurrentIndex(0))
 
@@ -1359,13 +1353,9 @@ class SetAnalyzerGUI(QMainWindow):
         self.shortcut_f3 = QShortcut(QKeySequence("F3"), self)
         self.shortcut_f3.activated.connect(lambda: self.main_tab_widget.setCurrentIndex(2))
 
-        self.shortcut_exit = QShortcut(QKeySequence("Ctrl+Q"), self)
-        self.shortcut_exit.activated.connect(self.close_application)
-
-    def close_application(self):
-        reply = QMessageBox.question(self, "프로그램 종료", "ExcelSetAnalyzer 프로그램을 종료하시겠습니까?", QMessageBox.Yes | QMessageBox.No)
-        if reply == QMessageBox.Yes:
-            QApplication.quit()
+    def closeEvent(self, event):
+        # 윈도우 상단 우측 표준 [X] 버튼 클릭 시 깔끔하게 즉시 종료
+        event.accept()
 
     def apply_stylesheet(self):
         self.setStyleSheet("""
