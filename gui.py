@@ -8,10 +8,12 @@ from PySide6.QtWidgets import (
     QLabel, QPushButton, QComboBox, QCheckBox, QTabWidget, QTableWidget,
     QTableWidgetItem, QFileDialog, QMessageBox, QGroupBox, QHeaderView, QLineEdit,
     QFrame, QTextEdit, QSplashScreen, QProgressBar, QAbstractItemView,
-    QGraphicsOpacityEffect, QInputDialog, QSpinBox
+    QGraphicsOpacityEffect, QInputDialog, QSpinBox, QDateEdit, QDialog,
+    QRadioButton, QButtonGroup, QFormLayout
 )
-from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QSequentialAnimationGroup, Signal
+from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QSequentialAnimationGroup, Signal, QDate
 from PySide6.QtGui import QFont, QKeySequence, QShortcut
+from todo_manager import TodoManager
 
 
 class CustomHeaderView(QHeaderView):
@@ -1028,11 +1030,396 @@ class ColumnConcatWidget(QWidget):
         ToastNotification.show_toast(self.window(), f"📋 병합 결과 {len(self.concat_results)}행이 클립보드에 복사되었습니다!")
 
 
+class EditTodoDialog(QDialog):
+    """할 일 상세 수정 팝업 창"""
+    def __init__(self, parent, task):
+        super().__init__(parent)
+        self.setWindowTitle("✏️ 할 일 수정")
+        self.resize(450, 320)
+        self.task = task
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+
+        self.txt_title = QLineEdit(self.task.get("title", ""))
+        form.addRow("할 일 제목:", self.txt_title)
+
+        self.combo_category = QComboBox()
+        self.combo_category.addItems(["업무", "개인", "공부", "기타"])
+        self.combo_category.setCurrentText(self.task.get("category", "업무"))
+        form.addRow("카테고리:", self.combo_category)
+
+        self.combo_priority = QComboBox()
+        self.combo_priority.addItems(["🔥 높음", "⚡ 보통", "🌱 낮음"])
+        p = self.task.get("priority", "보통")
+        p_text = "🔥 높음" if p == "높음" else ("🌱 낮음" if p == "낮음" else "⚡ 보통")
+        self.combo_priority.setCurrentText(p_text)
+        form.addRow("우선순위:", self.combo_priority)
+
+        self.date_due = QDateEdit()
+        self.date_due.setCalendarPopup(True)
+        due_str = self.task.get("due_date", date.today().isoformat())
+        try:
+            d_parts = list(map(int, due_str.split("-")))
+            self.date_due.setDate(QDate(d_parts[0], d_parts[1], d_parts[2]))
+        except Exception:
+            self.date_due.setDate(QDate.currentDate())
+        form.addRow("마감일:", self.date_due)
+
+        self.txt_notes = QTextEdit()
+        self.txt_notes.setPlainText(self.task.get("notes", ""))
+        self.txt_notes.setMaximumHeight(80)
+        form.addRow("메모 / 세부사항:", self.txt_notes)
+
+        layout.addLayout(form)
+
+        btn_box = QHBoxLayout()
+        btn_save = QPushButton("💾 저장")
+        btn_save.setStyleSheet("background-color: #2563eb; color: white; font-weight: bold; padding: 8px 16px;")
+        btn_save.clicked.connect(self.accept)
+
+        btn_cancel = QPushButton("취소")
+        btn_cancel.clicked.connect(self.reject)
+
+        btn_box.addStretch()
+        btn_box.addWidget(btn_save)
+        btn_box.addWidget(btn_cancel)
+        layout.addLayout(btn_box)
+
+    def get_data(self):
+        p_raw = self.combo_priority.currentText()
+        priority = "높음" if "높음" in p_raw else ("낮음" if "낮음" in p_raw else "보통")
+        due_qdate = self.date_due.date()
+        due_date_str = f"{due_qdate.year():04d}-{due_qdate.month():02d}-{due_qdate.day():02d}"
+
+        return {
+            "title": self.txt_title.text().strip(),
+            "category": self.combo_category.currentText(),
+            "priority": priority,
+            "due_date": due_date_str,
+            "notes": self.txt_notes.toPlainText().strip()
+        }
+
+
+class TodoListWidget(QWidget):
+    """스마트 Todo List & 자동 일일 이월 (Daily Rollover) GUI 위젯"""
+    def __init__(self):
+        super().__init__()
+        self.manager = TodoManager()
+        self.current_filter = "today"
+        self.init_ui()
+        self.load_and_render()
+
+    def init_ui(self):
+        main_layout = QVBoxLayout(self)
+        main_layout.setSpacing(12)
+        main_layout.setContentsMargins(16, 16, 16, 16)
+
+        # 1. Top Banner Box
+        banner_box = QGroupBox("📝 스마트 Todo List & 자동 일일 이월 (Daily Rollover)")
+        banner_layout = QHBoxLayout(banner_box)
+
+        info_layout = QVBoxLayout()
+        lbl_subtitle = QLabel("미완료된 항목은 하루가 지나면 자동으로 오늘 날짜로 이월되며 '🔄 N일 이월됨' 뱃지가 부여됩니다.")
+        lbl_subtitle.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        info_layout.addWidget(lbl_subtitle)
+
+        stats_sub_layout = QHBoxLayout()
+        self.lbl_stats_today = QLabel("🔵 오늘 할 일: 0개")
+        self.lbl_stats_today.setStyleSheet("color: #60a5fa; font-weight: bold; font-size: 12px;")
+
+        self.lbl_stats_rolled = QLabel("🔄 이월된 항목: 0개")
+        self.lbl_stats_rolled.setStyleSheet("color: #f59e0b; font-weight: bold; font-size: 12px;")
+
+        self.lbl_stats_pending = QLabel("⏳ 미완료: 0개")
+        self.lbl_stats_pending.setStyleSheet("color: #ef4444; font-weight: bold; font-size: 12px;")
+
+        stats_sub_layout.addWidget(self.lbl_stats_today)
+        stats_sub_layout.addWidget(self.lbl_stats_rolled)
+        stats_sub_layout.addWidget(self.lbl_stats_pending)
+        stats_sub_layout.addStretch()
+        info_layout.addLayout(stats_sub_layout)
+
+        self.lbl_progress = QLabel("오늘 달성률: 0% (0/0 완료)")
+        self.lbl_progress.setStyleSheet("color: #34d399; font-size: 11px; font-weight: bold;")
+        info_layout.addWidget(self.lbl_progress)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setFixedHeight(10)
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setStyleSheet("""
+            QProgressBar { background-color: #0f172a; border: 1px solid #334155; border-radius: 5px; }
+            QProgressBar::chunk { background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #10b981, stop:1 #3b82f6); border-radius: 4px; }
+        """)
+        info_layout.addWidget(self.progress_bar)
+        banner_layout.addLayout(info_layout, stretch=3)
+
+        sim_layout = QVBoxLayout()
+        btn_simulate = QPushButton("⚡ 다음날로 시뮬레이션\n(자동 이월 테스트)")
+        btn_simulate.setStyleSheet("background-color: #d97706; color: white; font-weight: bold; padding: 10px 14px; font-size: 11px;")
+        btn_simulate.setToolTip("미완료 항목의 마감일을 어제로 변경하여 다음날 앱을 켰을 때의 이월 동작을 시뮬레이션합니다.")
+        btn_simulate.clicked.connect(self.simulate_rollover)
+        sim_layout.addWidget(btn_simulate)
+        banner_layout.addLayout(sim_layout, stretch=1)
+
+        main_layout.addWidget(banner_box)
+
+        # 2. Add Task Row
+        add_box = QGroupBox("➕ 새 할 일 추가")
+        add_layout = QHBoxLayout(add_box)
+
+        self.txt_title = QLineEdit()
+        self.txt_title.setPlaceholderText("새로운 할 일을 입력하세요... (Enter키 누르면 추가)")
+        self.txt_title.returnPressed.connect(self.add_task)
+
+        self.combo_category = QComboBox()
+        self.combo_category.addItems(["업무", "개인", "공부", "기타"])
+
+        self.combo_priority = QComboBox()
+        self.combo_priority.addItems(["🔥 높음", "⚡ 보통", "🌱 낮음"])
+        self.combo_priority.setCurrentIndex(1)
+
+        self.date_due = QDateEdit()
+        self.date_due.setCalendarPopup(True)
+        self.date_due.setDate(QDate.currentDate())
+
+        btn_add = QPushButton("➕ 추가")
+        btn_add.setStyleSheet("background-color: #2563eb; color: white; font-weight: bold; padding: 6px 14px;")
+        btn_add.clicked.connect(self.add_task)
+
+        add_layout.addWidget(self.txt_title, stretch=3)
+        add_layout.addWidget(QLabel("카테고리:"))
+        add_layout.addWidget(self.combo_category)
+        add_layout.addWidget(QLabel("우선순위:"))
+        add_layout.addWidget(self.combo_priority)
+        add_layout.addWidget(QLabel("마감일:"))
+        add_layout.addWidget(self.date_due)
+        add_layout.addWidget(btn_add)
+        main_layout.addWidget(add_box)
+
+        # 3. Filter & Search Bar
+        filter_box = QHBoxLayout()
+
+        self.btn_filter_today = QPushButton("📅 오늘 할 일")
+        self.btn_filter_rollover = QPushButton("🔄 이월된 항목")
+        self.btn_filter_pending = QPushButton("⏳ 미완료")
+        self.btn_filter_completed = QPushButton("✅ 완료됨")
+        self.btn_filter_all = QPushButton("📋 전체")
+
+        self.filter_buttons = {
+            "today": self.btn_filter_today,
+            "rollover": self.btn_filter_rollover,
+            "pending": self.btn_filter_pending,
+            "completed": self.btn_filter_completed,
+            "all": self.btn_filter_all
+        }
+
+        for f_key, btn in self.filter_buttons.items():
+            btn.setCheckable(True)
+            btn.clicked.connect(lambda _, key=f_key: self.set_filter(key))
+            filter_box.addWidget(btn)
+
+        self.btn_filter_today.setChecked(True)
+        filter_box.addSpacing(20)
+
+        self.combo_filter_cat = QComboBox()
+        self.combo_filter_cat.addItems(["전체 카테고리", "업무", "개인", "공부", "기타"])
+        self.combo_filter_cat.currentTextChanged.connect(lambda _: self.load_and_render())
+        filter_box.addWidget(self.combo_filter_cat)
+
+        self.txt_search = QLineEdit()
+        self.txt_search.setPlaceholderText("🔍 검색어 입력...")
+        self.txt_search.textChanged.connect(lambda _: self.load_and_render())
+        filter_box.addWidget(self.txt_search)
+
+        main_layout.addLayout(filter_box)
+
+        # 4. Tasks Table View
+        self.table = CopyableTableWidget()
+        self.table.setColumnCount(6)
+        self.table.setHorizontalHeaderLabels(["선택/완료", "우선순위", "카테고리", "할 일 내용", "마감일 / 이월 뱃지", "관리"])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.table.horizontalHeader().setStretchLastSection(False)
+        self.table.setAlternatingRowColors(True)
+
+        main_layout.addWidget(self.table)
+        self.update_filter_button_styles()
+
+    def set_filter(self, filter_key):
+        self.current_filter = filter_key
+        for f_key, btn in self.filter_buttons.items():
+            btn.setChecked(f_key == filter_key)
+        self.update_filter_button_styles()
+        self.load_and_render()
+
+    def update_filter_button_styles(self):
+        for f_key, btn in self.filter_buttons.items():
+            if f_key == self.current_filter:
+                btn.setStyleSheet("background-color: #2563eb; color: white; font-weight: bold; border-radius: 4px; padding: 6px 12px;")
+            else:
+                btn.setStyleSheet("background-color: #1e293b; color: #94a3b8; border: 1px solid #334155; border-radius: 4px; padding: 6px 12px;")
+
+    def add_task(self):
+        title = self.txt_title.text().strip()
+        if not title:
+            return
+
+        cat = self.combo_category.currentText()
+        p_raw = self.combo_priority.currentText()
+        priority = "높음" if "높음" in p_raw else ("낮음" if "낮음" in p_raw else "보통")
+
+        due_qdate = self.date_due.date()
+        due_date_str = f"{due_qdate.year():04d}-{due_qdate.month():02d}-{due_qdate.day():02d}"
+
+        self.manager.add_task(title=title, category=cat, priority=priority, due_date=due_date_str)
+        self.txt_title.clear()
+        ToastNotification.show_toast(self.window(), f"➕ '{title}' 할 일이 추가되었습니다.")
+        self.load_and_render()
+
+    def toggle_task(self, task_id):
+        task = self.manager.toggle_complete(task_id)
+        if task:
+            msg = "✅ 할 일이 완료 처리되었습니다." if task["completed"] else "↩️ 완료 해제되었습니다."
+            ToastNotification.show_toast(self.window(), msg)
+        self.load_and_render()
+
+    def edit_task(self, task):
+        dialog = EditTodoDialog(self, task)
+        if dialog.exec() == QDialog.Accepted:
+            data = dialog.get_data()
+            if data["title"]:
+                self.manager.update_task(
+                    task["id"],
+                    title=data["title"],
+                    category=data["category"],
+                    priority=data["priority"],
+                    due_date=data["due_date"],
+                    notes=data["notes"]
+                )
+                ToastNotification.show_toast(self.window(), "✏️ 할 일이 수정되었습니다.")
+                self.load_and_render()
+
+    def delete_task(self, task_id, title):
+        reply = QMessageBox.question(self, "할 일 삭제", f"'{title}' 할 일을 정말 삭제하시겠습니까?", QMessageBox.Yes | QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            self.manager.delete_task(task_id)
+            ToastNotification.show_toast(self.window(), f"🗑️ '{title}' 할 일이 삭제되었습니다.")
+            self.load_and_render()
+
+    def simulate_rollover(self):
+        count = self.manager.simulate_next_day()
+        if count > 0:
+            ToastNotification.show_toast(self.window(), f"⚡ {count}개 미완료 항목이 어제 날짜로 설정된 후 오늘 날짜로 이월되었습니다!")
+        else:
+            ToastNotification.show_toast(self.window(), "⚡ 이월할 미완료 항목이 없습니다.")
+        self.load_and_render()
+
+    def load_and_render(self):
+        cat_filter = self.combo_filter_cat.currentText()
+        query = self.txt_search.text().strip()
+
+        tasks = self.manager.get_filtered_tasks(self.current_filter, cat_filter, query)
+        stats = self.manager.get_stats()
+
+        self.lbl_stats_today.setText(f"🔵 오늘 할 일: {stats['total_today']}개 (완료 {stats['completed_today']}개)")
+        self.lbl_stats_rolled.setText(f"🔄 이월된 항목: {stats['total_rolled_over']}개")
+        self.lbl_stats_pending.setText(f"⏳ 미완료: {stats['total_pending']}개")
+
+        pct = stats["progress_pct"]
+        self.lbl_progress.setText(f"오늘 달성률: {pct}% ({stats['completed_today']}/{stats['total_today']} 완료)")
+        self.progress_bar.setValue(pct)
+
+        self.table.setRowCount(len(tasks))
+        for row_i, task in enumerate(tasks):
+            # Col 0: Checkbox
+            chk = QCheckBox()
+            chk.setChecked(task.get("completed", False))
+            chk.setStyleSheet("margin-left: 10px;")
+            chk.toggled.connect(lambda _, t_id=task["id"]: self.toggle_task(t_id))
+
+            chk_widget = QWidget()
+            c_layout = QHBoxLayout(chk_widget)
+            c_layout.addWidget(chk)
+            c_layout.setAlignment(Qt.AlignCenter)
+            c_layout.setContentsMargins(0, 0, 0, 0)
+            self.table.setIndexWidget(self.table.model().index(row_i, 0), chk_widget)
+
+            # Col 1: Priority Badge
+            p = task.get("priority", "보통")
+            p_text = "🔥 높음" if p == "높음" else ("🌱 낮음" if p == "낮음" else "⚡ 보통")
+            item_p = QTableWidgetItem(p_text)
+            item_p.setTextAlignment(Qt.AlignCenter)
+            if p == "높음":
+                item_p.setForeground(Qt.GlobalColor.red)
+            elif p == "낮음":
+                item_p.setForeground(Qt.GlobalColor.green)
+            else:
+                item_p.setForeground(Qt.GlobalColor.yellow)
+            self.table.setItem(row_i, 1, item_p)
+
+            # Col 2: Category Badge
+            cat = task.get("category", "업무")
+            item_c = QTableWidgetItem(f"🏷️ {cat}")
+            item_c.setTextAlignment(Qt.AlignCenter)
+            item_c.setForeground(Qt.GlobalColor.cyan)
+            self.table.setItem(row_i, 2, item_c)
+
+            # Col 3: Title & Notes
+            title = task.get("title", "")
+            notes = task.get("notes", "")
+            disp_title = title + (f" ({notes})" if notes else "")
+            item_t = QTableWidgetItem(disp_title)
+            if task.get("completed", False):
+                font = item_t.font()
+                font.setStrikeOut(True)
+                item_t.setFont(font)
+                item_t.setForeground(Qt.GlobalColor.gray)
+            else:
+                font = item_t.font()
+                font.setBold(True)
+                item_t.setFont(font)
+            self.table.setItem(row_i, 3, item_t)
+
+            # Col 4: Due Date & Rollover Badge
+            due = task.get("due_date", "")
+            roll_cnt = task.get("rollover_count", 0)
+            roll_badge = f" 🔄 {roll_cnt}일 이월됨" if roll_cnt > 0 and not task.get("completed", False) else ""
+            item_d = QTableWidgetItem(f"{due}{roll_badge}")
+            item_d.setTextAlignment(Qt.AlignCenter)
+            if roll_cnt > 0 and not task.get("completed", False):
+                item_d.setForeground(Qt.GlobalColor.magenta)
+            self.table.setItem(row_i, 4, item_d)
+
+            # Col 5: Actions (Edit / Delete)
+            act_widget = QWidget()
+            act_layout = QHBoxLayout(act_widget)
+            act_layout.setContentsMargins(2, 2, 2, 2)
+            act_layout.setSpacing(4)
+
+            btn_edit = QPushButton("✏️ 수정")
+            btn_edit.setStyleSheet("background-color: #1e3a8a; color: #93c5fd; font-size: 11px; padding: 2px 6px;")
+            btn_edit.clicked.connect(lambda _, t=task: self.edit_task(t))
+
+            btn_del = QPushButton("🗑️ 삭제")
+            btn_del.setStyleSheet("background-color: #991b1b; color: #fca5a5; font-size: 11px; padding: 2px 6px;")
+            btn_del.clicked.connect(lambda _, t_id=task["id"], t_title=task["title"]: self.delete_task(t_id, t_title))
+
+            act_layout.addWidget(btn_edit)
+            act_layout.addWidget(btn_del)
+            self.table.setIndexWidget(self.table.model().index(row_i, 5), act_widget)
+
+        self.table.resizeColumnsToContents()
+
+
 class SetAnalyzerGUI(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("엑셀 집합 분석 & 컬럼 Concat 병합 툴 (Excel Helper)")
-        self.resize(1150, 780)
+        self.setWindowTitle("엑셀 집합 분석 & 컬럼 Concat 병합 & Todo List 툴 (Excel Helper)")
+        self.resize(1180, 800)
 
         self.init_ui()
         self.apply_stylesheet()
@@ -1043,16 +1430,21 @@ class SetAnalyzerGUI(QMainWindow):
 
         self.set_analyzer_widget = SetAnalyzerWidget()
         self.column_concat_widget = ColumnConcatWidget()
+        self.todo_list_widget = TodoListWidget()
 
         self.main_tab_widget.addTab(self.set_analyzer_widget, "📊 엑셀 집합 분석 (F1)")
         self.main_tab_widget.addTab(self.column_concat_widget, "🔗 컬럼 Concat / SQL 쿼리 생성기 (F2)")
+        self.main_tab_widget.addTab(self.todo_list_widget, "📝 스마트 Todo List (F3)")
 
-        # Keyboard Shortcuts: F1 -> Tab 0, F2 -> Tab 1
+        # Keyboard Shortcuts: F1 -> Tab 0, F2 -> Tab 1, F3 -> Tab 2
         self.shortcut_f1 = QShortcut(QKeySequence("F1"), self)
         self.shortcut_f1.activated.connect(lambda: self.main_tab_widget.setCurrentIndex(0))
 
         self.shortcut_f2 = QShortcut(QKeySequence("F2"), self)
         self.shortcut_f2.activated.connect(lambda: self.main_tab_widget.setCurrentIndex(1))
+
+        self.shortcut_f3 = QShortcut(QKeySequence("F3"), self)
+        self.shortcut_f3.activated.connect(lambda: self.main_tab_widget.setCurrentIndex(2))
 
     def apply_stylesheet(self):
         self.setStyleSheet("""
