@@ -1356,6 +1356,7 @@ class SetAnalyzerGUI(QMainWindow):
     def closeEvent(self, event):
         # 윈도우 상단 우측 표준 [X] 버튼 클릭 시 깔끔하게 즉시 종료
         event.accept()
+        QApplication.quit()
 
     def apply_stylesheet(self):
         self.setStyleSheet("""
