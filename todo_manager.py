@@ -123,31 +123,34 @@ class TodoManager:
                 return task
         return None
 
-    def get_filtered_tasks(self, filter_type="today", category_filter="전체", search_query=""):
+    def get_filtered_tasks(self, filter_type="today", category_filter="전체 카테고리", search_query=""):
         today_str = date.today().isoformat()
         results = []
 
         for task in self.tasks:
             # 검색어 필터
-            if search_query and search_query.lower() not in task["title"].lower() and search_query.lower() not in task.get("notes", "").lower():
-                continue
+            if search_query:
+                sq = search_query.lower()
+                if sq not in task.get("title", "").lower() and sq not in task.get("notes", "").lower():
+                    continue
 
-            # 카테고리 필터
-            if category_filter != "전체" and task["category"] != category_filter:
+            # 카테고리 필터 ("전체", "전체 카테고리"는 전체 항목 통과)
+            if category_filter and category_filter not in ("전체", "전체 카테고리") and task.get("category") != category_filter:
                 continue
 
             # 날짜 및 상태 필터
             if filter_type == "today":
-                if task["due_date"] == today_str:
+                due = task.get("due_date", today_str)
+                if due == today_str or (not task.get("completed") and due <= today_str):
                     results.append(task)
             elif filter_type == "rollover":
-                if task.get("rollover_count", 0) > 0 and not task["completed"]:
+                if task.get("rollover_count", 0) > 0 and not task.get("completed"):
                     results.append(task)
             elif filter_type == "completed":
-                if task["completed"]:
+                if task.get("completed"):
                     results.append(task)
             elif filter_type == "pending":
-                if not task["completed"]:
+                if not task.get("completed"):
                     results.append(task)
             elif filter_type == "all":
                 results.append(task)
