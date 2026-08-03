@@ -1235,7 +1235,7 @@ class TodoListWidget(QWidget):
         cat_filter = self.combo_filter_cat.currentText()
         query = self.txt_search.text().strip()
 
-        tasks = self.manager.get_filtered_tasks(self.current_filter, cat_filter, query)
+        self.rendered_tasks = self.manager.get_filtered_tasks(self.current_filter, cat_filter, query)
         stats = self.manager.get_stats()
 
         self.lbl_stats_today.setText(f"🔵 오늘 할 일: {stats['total_today']}개 (완료 {stats['completed_today']}개)")
@@ -1246,15 +1246,25 @@ class TodoListWidget(QWidget):
         self.lbl_progress.setText(f"오늘 달성률: {pct}% ({stats['completed_today']}/{stats['total_today']} 완료)")
         self.progress_bar.setValue(pct)
 
-        self.table.setRowCount(len(tasks))
-        for row_i, task in enumerate(tasks):
+        # Prevent white flash during table rebuild
+        self.table.setUpdatesEnabled(False)
+        self.table.clearContents()
+        self.table.setRowCount(0)
+        self.table.setRowCount(len(self.rendered_tasks))
+
+        for row_i, task in enumerate(self.rendered_tasks):
+            task_id = task["id"]
+            task_title = task.get("title", "")
+
             # Col 0: Checkbox
             chk = QCheckBox()
             chk.setChecked(task.get("completed", False))
             chk.setStyleSheet("margin-left: 10px;")
-            chk.toggled.connect(lambda _, t_id=task["id"]: self.toggle_task(t_id))
+            chk.toggled.connect(self._make_toggle_slot(task_id))
 
             chk_widget = QWidget()
+            chk_widget.setAutoFillBackground(False)
+            chk_widget.setAttribute(Qt.WA_TranslucentBackground)
             c_layout = QHBoxLayout(chk_widget)
             c_layout.addWidget(chk)
             c_layout.setAlignment(Qt.AlignCenter)
@@ -1282,8 +1292,7 @@ class TodoListWidget(QWidget):
             self.table.setItem(row_i, 2, item_c)
 
             # Col 3: Title
-            title = task.get("title", "")
-            item_t = QTableWidgetItem(title)
+            item_t = QTableWidgetItem(task_title)
             if task.get("completed", False):
                 font = item_t.font()
                 font.setStrikeOut(True)
@@ -1307,19 +1316,32 @@ class TodoListWidget(QWidget):
 
             # Col 5: Delete Action
             act_widget = QWidget()
+            act_widget.setAutoFillBackground(False)
+            act_widget.setAttribute(Qt.WA_TranslucentBackground)
             act_layout = QHBoxLayout(act_widget)
             act_layout.setContentsMargins(2, 2, 2, 2)
             act_layout.setAlignment(Qt.AlignCenter)
 
             btn_del = QPushButton("🗑️ 삭제")
             btn_del.setStyleSheet("background-color: #991b1b; color: #fca5a5; font-size: 11px; padding: 2px 8px;")
-            btn_del.clicked.connect(lambda _, t_id=task["id"], t_title=task["title"]: self.delete_task(t_id, t_title))
+            btn_del.clicked.connect(self._make_delete_slot(task_id, task_title))
 
             act_layout.addWidget(btn_del)
             self.table.setIndexWidget(self.table.model().index(row_i, 5), act_widget)
 
         self.table.resizeColumnsToContents()
         self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
+        self.table.setUpdatesEnabled(True)
+
+    def _make_toggle_slot(self, task_id):
+        def slot(checked):
+            self.toggle_task(task_id)
+        return slot
+
+    def _make_delete_slot(self, task_id, task_title):
+        def slot():
+            self.delete_task(task_id, task_title)
+        return slot
 
 
 class SetAnalyzerGUI(QMainWindow):
@@ -1379,8 +1401,10 @@ class SetAnalyzerGUI(QMainWindow):
             QTabBar::tab:selected { background: #2563eb; color: #ffffff; font-weight: bold; }
 
             /* Table & Corner Styling (Fix Gray Corner Bug) */
-            QTableWidget { background-color: #1e293b; gridline-color: #334155; border: none; color: #f8fafc; }
+            QTableWidget { background-color: #1e293b; alternate-background-color: #172033; gridline-color: #334155; border: none; color: #f8fafc; }
+            QTableWidget::item { background-color: transparent; }
             QTableWidget::item:selected { background-color: #2563eb; color: #ffffff; }
+            QTableWidget QWidget { background-color: transparent; }
             QTableCornerButton::section { background-color: #0f172a; border: 1px solid #334155; }
             QHeaderView { background-color: #0f172a; border: none; }
             QHeaderView::section { background-color: #0f172a; color: #cbd5e1; font-weight: bold; border: 1px solid #334155; padding: 6px; }
