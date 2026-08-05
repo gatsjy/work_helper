@@ -1091,6 +1091,13 @@ class TodoListWidget(QWidget):
         btn_simulate.setToolTip("미완료 항목의 마감일을 어제로 변경하여 다음날 실행 시 이월 동작을 즉시 테스트합니다.")
         btn_simulate.clicked.connect(self.simulate_rollover)
         sim_layout.addWidget(btn_simulate)
+
+        btn_refresh = QPushButton("🔄 새로고침")
+        btn_refresh.setStyleSheet("background-color: #0ea5e9; color: white; font-weight: bold; padding: 8px 14px; font-size: 11px;")
+        btn_refresh.setToolTip("할 일 목록을 새로고침합니다 (F5)")
+        btn_refresh.clicked.connect(self.load_and_render)
+        sim_layout.addWidget(btn_refresh)
+
         banner_layout.addLayout(sim_layout, stretch=1)
 
         main_layout.addWidget(banner_box)
@@ -1377,6 +1384,10 @@ class SetAnalyzerGUI(QMainWindow):
 
         self.shortcut_f3 = QShortcut(QKeySequence("F3"), self)
         self.shortcut_f3.activated.connect(lambda: self.main_tab_widget.setCurrentIndex(2))
+
+        # F5 -> Refresh Todo List
+        self.shortcut_f5 = QShortcut(QKeySequence("F5"), self)
+        self.shortcut_f5.activated.connect(lambda: self.todo_list_widget.load_and_render())
 
     def closeEvent(self, event):
         # 윈도우 상단 우측 표준 [X] 버튼 클릭 시 깔끔하게 즉시 종료
