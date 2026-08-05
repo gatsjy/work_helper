@@ -1347,7 +1347,7 @@ class TodoListWidget(QWidget):
 class SetAnalyzerGUI(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("엑셀 집합 분석 & 컬럼 Concat 병합 & Todo List 툴 (Excel Helper)")
+        self.setWindowTitle("Work Helper")
         self.resize(1180, 800)
 
         self.init_ui()
@@ -1361,11 +1361,11 @@ class SetAnalyzerGUI(QMainWindow):
         self.column_concat_widget = ColumnConcatWidget()
         self.todo_list_widget = TodoListWidget()
 
-        self.main_tab_widget.addTab(self.set_analyzer_widget, "📊 엑셀 집합 분석 (F1)")
-        self.main_tab_widget.addTab(self.column_concat_widget, "🔗 컬럼 Concat / SQL 쿼리 생성기 (F2)")
-        self.main_tab_widget.addTab(self.todo_list_widget, "📝 스마트 Todo List (F3)")
+        self.main_tab_widget.addTab(self.todo_list_widget, "📝 스마트 Todo List (F1)")
+        self.main_tab_widget.addTab(self.set_analyzer_widget, "📊 엑셀 집합 분석 (F2)")
+        self.main_tab_widget.addTab(self.column_concat_widget, "🔗 컬럼 Concat / SQL 쿼리 생성기 (F3)")
 
-        # Keyboard Shortcuts: F1 -> Tab 0, F2 -> Tab 1, F3 -> Tab 2
+        # Keyboard Shortcuts: F1 -> Tab 0 (Todo), F2 -> Tab 1 (Set Analyzer), F3 -> Tab 2 (Concat)
         self.shortcut_f1 = QShortcut(QKeySequence("F1"), self)
         self.shortcut_f1.activated.connect(lambda: self.main_tab_widget.setCurrentIndex(0))
 
