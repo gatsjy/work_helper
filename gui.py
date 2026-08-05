@@ -1176,9 +1176,32 @@ class TodoListWidget(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
         self.table.horizontalHeader().setStretchLastSection(False)
         self.table.setAlternatingRowColors(True)
+        self.table.itemDoubleClicked.connect(self.edit_task)
 
         main_layout.addWidget(self.table)
         self.update_filter_button_styles()
+
+    def edit_task(self, item):
+        if not item or item.column() != 3:
+            return
+        row = item.row()
+        if hasattr(self, 'rendered_tasks') and 0 <= row < len(self.rendered_tasks):
+            task = self.rendered_tasks[row]
+            task_id = task["id"]
+            current_title = task.get("title", "")
+
+            new_title, ok = QInputDialog.getText(
+                self,
+                "✏️ 할 일 내용 수정",
+                "수정할 할 일 내용을 입력하세요:",
+                QLineEdit.Normal,
+                current_title
+            )
+            if ok and new_title.strip() and new_title.strip() != current_title:
+                updated = self.manager.update_task(task_id, title=new_title.strip())
+                if updated:
+                    ToastNotification.show_toast(self.window(), f"✏️ '{new_title.strip()}'(으)로 수정되었습니다.")
+                    self.load_and_render()
 
     def make_filter_slot(self, filter_key):
         return lambda checked=False: self.set_filter(filter_key)
@@ -1303,6 +1326,7 @@ class TodoListWidget(QWidget):
 
             # Col 3: Title
             item_t = QTableWidgetItem(task_title)
+            item_t.setToolTip("💡 더블클릭하여 할 일 내용 수정")
             if task.get("completed", False):
                 font = item_t.font()
                 font.setStrikeOut(True)
