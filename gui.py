@@ -1164,6 +1164,7 @@ class TodoListWidget(QWidget):
         self.table = CopyableTableWidget()
         self.table.setColumnCount(6)
         self.table.setHorizontalHeaderLabels(["선택/완료", "우선순위", "카테고리", "할 일 내용", "마감일 / 이월 뱃지", "관리"])
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
         self.table.horizontalHeader().setStretchLastSection(False)
