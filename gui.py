@@ -1110,7 +1110,9 @@ class TodoListWidget(QWidget):
         self.combo_priority.addItems(["보통", "높음", "낮음"])
 
         btn_add = QPushButton("➕ 추가")
-        btn_add.setStyleSheet("background-color: #2563eb; color: white; font-weight: bold; padding: 6px 16px;")
+        btn_add.setStyleSheet("background-color: #2563eb; color: white; font-weight: bold; padding: 8px 20px; min-height: 28px; min-width: 70px; border-radius: 4px;")
+        btn_add.setCursor(Qt.PointingHandCursor)
+        btn_add.setFocusPolicy(Qt.StrongFocus)
         btn_add.clicked.connect(self.add_task)
 
         add_layout.addWidget(self.txt_title, stretch=3)
