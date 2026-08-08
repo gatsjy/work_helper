@@ -8,7 +8,7 @@
 import pytest
 
 from log_analyzer import (
-    analyze_log, detect_encoding, iter_entries, is_continuation,
+    analyze_log, detect_encoding, iter_entries, is_continuation, looks_like_text,
     mask_variables, parse_level, parse_timestamp, TemplateMiner, LogEntry,
 )
 
@@ -33,6 +33,30 @@ class TestEncoding:
     def test_utf8_bom(self, tmp_path):
         path = write(tmp_path, "로그\n", encoding="utf-8-sig")
         assert detect_encoding(path) == "utf-8-sig"
+
+
+class TestTextDetection:
+    """드래그 앤 드롭으로 아무 파일이나 들어올 수 있다. 확장자는 믿지 않는다."""
+
+    def test_plain_log_is_text(self, tmp_path):
+        assert looks_like_text(write(tmp_path, "2026-08-07 09:00:01 INFO ok\n"))
+
+    def test_korean_cp949_is_text(self, tmp_path):
+        assert looks_like_text(write(tmp_path, "접속 실패\n", encoding="cp949"))
+
+    def test_extensionless_file_is_text(self, tmp_path):
+        assert looks_like_text(write(tmp_path, "syslog line\n", name="messages"))
+
+    def test_binary_is_rejected(self, tmp_path):
+        path = tmp_path / "thing.log"          # 확장자는 로그인데 내용은 바이너리
+        path.write_bytes(b"PK\x03\x04\x00\x00\x00\x00binary junk")
+        assert not looks_like_text(str(path))
+
+    def test_empty_file_counts_as_text(self, tmp_path):
+        assert looks_like_text(write(tmp_path, ""))
+
+    def test_missing_file_is_not_text(self, tmp_path):
+        assert not looks_like_text(str(tmp_path / "nope.log"))
 
 
 class TestLineParsing:

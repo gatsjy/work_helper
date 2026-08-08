@@ -45,6 +45,24 @@ BOM_ENCODINGS = (
 )
 
 
+def looks_like_text(path, sample_size=8192):
+    """텍스트 파일처럼 보이는지 검사한다.
+
+    확장자로 판단하지 않는다. 로그 파일은 .log/.txt/.out/.err/확장자 없음 등
+    뭐든 될 수 있고, 반대로 .xlsx 를 끌어다 놓으면 분석해봐야 쓰레기만 나온다.
+    NUL 바이트가 있으면 사실상 바이너리다.
+    """
+    try:
+        with open(path, "rb") as f:
+            sample = f.read(sample_size)
+    except OSError:
+        return False
+
+    if not sample:
+        return True                      # 빈 파일은 텍스트로 친다
+    return b"\x00" not in sample
+
+
 def detect_encoding(path, sample_size=262144):
     """BOM → UTF-8 → CP949 순으로 인코딩을 추정한다."""
     with open(path, "rb") as f:

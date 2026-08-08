@@ -11,7 +11,7 @@ from pathlib import Path
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QGroupBox,
-    QLineEdit, QSpinBox, QComboBox, QFileDialog, QMessageBox, QProgressBar,
+    QLineEdit, QComboBox, QFileDialog, QMessageBox, QProgressBar,
     QTextEdit, QTableWidget, QTableWidgetItem, QHeaderView, QTabWidget,
     QSplitter, QFormLayout, QCheckBox, QApplication,
 )
@@ -86,6 +86,8 @@ class LogAnalyzerWidget(QWidget):
         self.worker = None
         self.log_path = None
         self.init_ui()
+        # 탭 어디에 떨어뜨려도 받는다. 파일 선택 버튼까지 가는 것보다 빠르다.
+        self.setAcceptDrops(True)
 
     # ------------------------------------------------------------------
     # UI
@@ -118,6 +120,13 @@ class LogAnalyzerWidget(QWidget):
 
         file_group = QGroupBox("1. 로그 파일")
         file_layout = QVBoxLayout(file_group)
+
+        self.lbl_drop_hint = QLabel()
+        self.lbl_drop_hint.setWordWrap(True)
+        self.lbl_drop_hint.setAlignment(Qt.AlignCenter)
+        file_layout.addWidget(self.lbl_drop_hint)
+        self._set_drop_highlight(False)
+
         self.lbl_file = QLabel("선택된 파일이 없습니다.")
         self.lbl_file.setWordWrap(True)
         self.lbl_file.setStyleSheet("color: #fbbf24; font-weight: bold;")
@@ -143,14 +152,6 @@ class LogAnalyzerWidget(QWidget):
             "글자가 깨져 보이면 여기서 직접 지정하세요."
         )
         opt_layout.addRow("인코딩:", self.combo_encoding)
-
-        self.spin_max_lines = QSpinBox()
-        self.spin_max_lines.setRange(0, 100_000_000)
-        self.spin_max_lines.setSingleStep(50_000)
-        self.spin_max_lines.setValue(500_000)
-        self.spin_max_lines.setSpecialValueText("제한 없음")
-        self.spin_max_lines.setToolTip("0 이면 전체를 읽습니다. 거대한 파일은 제한을 두세요.")
-        opt_layout.addRow("최대 줄 수:", self.spin_max_lines)
 
         opt_layout.addRow(QLabel("묶는 정도:"))
         opt_layout.addRow(self._build_grouping_buttons())
@@ -337,13 +338,99 @@ class LogAnalyzerWidget(QWidget):
             self, "분석할 로그 파일 선택", "",
             "로그/텍스트 파일 (*.log *.txt *.out *.err);;모든 파일 (*.*)"
         )
-        if not path:
-            return
+        if path:
+            self.load_file(path)
+
+    def load_file(self, path, auto_run=False):
+        """파일 선택/드롭 공통 경로."""
+        if not os.path.isfile(path):
+            QMessageBox.warning(self, "파일 아님", "파일을 지정하세요. (폴더는 안 됩니다)")
+            return False
+
+        if not la.looks_like_text(path):
+            QMessageBox.warning(
+                self, "텍스트 파일이 아님",
+                f"'{Path(path).name}' 은(는) 바이너리 파일로 보입니다.\n"
+                "텍스트 로그 파일을 넣어 주세요."
+            )
+            return False
+
         self.log_path = path
         size_mb = os.path.getsize(path) / (1024 * 1024)
         self.lbl_file.setText(f"📄 {Path(path).name}  ({size_mb:,.1f} MB)")
         self.lbl_file.setToolTip(path)
         self.lbl_status.setText("파일 선택됨 — [분석 실행]을 누르세요.")
+
+        if auto_run:
+            self.start_analysis()
+        return True
+
+    # ------------------------------------------------------------------
+    # 드래그 앤 드롭
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _dropped_files(mime):
+        if not mime.hasUrls():
+            return []
+        return [
+            url.toLocalFile() for url in mime.urls()
+            if url.isLocalFile() and url.toLocalFile()
+        ]
+
+    def dragEnterEvent(self, event):
+        files = self._dropped_files(event.mimeData())
+        if files and any(os.path.isfile(f) for f in files):
+            event.acceptProposedAction()
+            self._set_drop_highlight(True)
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        if self._dropped_files(event.mimeData()):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragLeaveEvent(self, event):
+        self._set_drop_highlight(False)
+        super().dragLeaveEvent(event)
+
+    def dropEvent(self, event):
+        self._set_drop_highlight(False)
+        files = [f for f in self._dropped_files(event.mimeData()) if os.path.isfile(f)]
+        if not files:
+            event.ignore()
+            return
+
+        event.acceptProposedAction()
+
+        if self.thread is not None:
+            QMessageBox.information(
+                self, "안내", "분석이 실행 중입니다. 끝난 뒤에 다시 놓아 주세요."
+            )
+            return
+
+        # 여러 개를 놓으면 첫 번째만. 로그 병합은 파일마다 시간축이 달라
+        # 함부로 섞으면 안 된다.
+        if len(files) > 1:
+            self.lbl_status.setText(
+                f"파일 {len(files)}개 중 첫 번째만 분석합니다: {Path(files[0]).name}"
+            )
+
+        self.load_file(files[0], auto_run=True)
+
+    def _set_drop_highlight(self, active):
+        self.lbl_drop_hint.setStyleSheet(
+            "color: #38bdf8; font-size: 11px; font-weight: bold;"
+            "border: 2px dashed #38bdf8; border-radius: 6px; padding: 10px;"
+            if active else
+            "color: #64748b; font-size: 11px;"
+            "border: 1px dashed #334155; border-radius: 6px; padding: 10px;"
+        )
+        self.lbl_drop_hint.setText(
+            "📥 여기에 놓으면 바로 분석합니다" if active
+            else "🖱️ 로그 파일을 이 탭에 끌어다 놓으면 바로 분석합니다"
+        )
 
     def start_analysis(self):
         if self.thread is not None:
@@ -365,12 +452,8 @@ class LogAnalyzerWidget(QWidget):
         self.progress_bar.setValue(0)
         self.lbl_status.setText("분석 시작...")
 
-        self.worker = LogWorker(
-            self.log_path,
-            self.spin_max_lines.value(),
-            encoding,
-            self.threshold,
-        )
+        # 항상 파일 전체를 읽는다 (0 = 제한 없음).
+        self.worker = LogWorker(self.log_path, 0, encoding, self.threshold)
         self.thread = QThread(self)
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
@@ -415,14 +498,6 @@ class LogAnalyzerWidget(QWidget):
             f"{len(report.templates):,}개로 요약"
         )
         self.tabs.setCurrentIndex(0)
-
-        if report.truncated:
-            QMessageBox.information(
-                self, "일부만 읽음",
-                f"'최대 줄 수' 제한({self.spin_max_lines.value():,}줄)에 걸려 "
-                "파일 앞부분만 분석했습니다.\n"
-                "전체를 보려면 제한을 0(제한 없음)으로 두세요."
-            )
 
     # ------------------------------------------------------------------
     # 렌더링
