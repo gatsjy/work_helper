@@ -11,6 +11,7 @@ from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QSequen
 from PySide6.QtGui import QFont, QKeySequence, QShortcut
 from todo_manager import TodoManager
 from deid_widget import DeIdWidget
+from log_widget import LogAnalyzerWidget
 from clipboard_parser import parse_table, column_letter
 
 
@@ -1184,7 +1185,7 @@ class TodoListWidget(QWidget):
 
         btn_refresh = QPushButton("🔄 새로고침")
         btn_refresh.setStyleSheet("background-color: #0ea5e9; color: white; font-weight: bold; padding: 8px 14px; font-size: 11px;")
-        btn_refresh.setToolTip("할 일 목록을 새로고침합니다 (F5)")
+        btn_refresh.setToolTip("할 일 목록을 새로고침합니다 (Ctrl+R)")
         btn_refresh.clicked.connect(self.load_and_render)
         sim_layout.addWidget(btn_refresh)
 
@@ -1485,27 +1486,33 @@ class SetAnalyzerGUI(QMainWindow):
         self.column_concat_widget = ColumnConcatWidget()
         self.todo_list_widget = TodoListWidget()
         self.deid_widget = DeIdWidget()
+        self.log_widget = LogAnalyzerWidget()
 
         self.main_tab_widget.addTab(self.todo_list_widget, "📝 스마트 Todo List (F1)")
         self.main_tab_widget.addTab(self.set_analyzer_widget, "📊 엑셀 집합 분석 (F2)")
         self.main_tab_widget.addTab(self.column_concat_widget, "🔗 컬럼 Concat / SQL 쿼리 생성기 (F3)")
         self.main_tab_widget.addTab(self.deid_widget, "🛡️ 개인정보 비식별화 (F4)")
+        self.main_tab_widget.addTab(self.log_widget, "📄 로그 분석 (F5)")
 
-        # Keyboard Shortcuts: F1..F4 -> tabs, F5 -> refresh Todo List
-        for key, index in (("F1", 0), ("F2", 1), ("F3", 2), ("F4", 3)):
+        # F1~F5 는 탭 전환으로 통일한다.
+        # (Todo 새로고침은 F5 를 쓰고 있었으나, 탭 번호와 어긋나므로 Ctrl+R 로 옮겼다.)
+        for key, index in (("F1", 0), ("F2", 1), ("F3", 2), ("F4", 3), ("F5", 4)):
             shortcut = QShortcut(QKeySequence(key), self)
             shortcut.activated.connect(
                 lambda idx=index: self.main_tab_widget.setCurrentIndex(idx)
             )
 
-        self.shortcut_f5 = QShortcut(QKeySequence("F5"), self)
-        self.shortcut_f5.activated.connect(lambda: self.todo_list_widget.load_and_render())
+        self.shortcut_refresh = QShortcut(QKeySequence("Ctrl+R"), self)
+        self.shortcut_refresh.activated.connect(
+            lambda: self.todo_list_widget.load_and_render()
+        )
 
     def closeEvent(self, event):
         # 윈도우 상단 우측 표준 [X] 버튼 클릭 시 깔끔하게 즉시 종료.
-        # 비식별화 워커가 돌고 있으면 먼저 정리한다 (스레드가 살아있는 채로
+        # 백그라운드 워커가 돌고 있으면 먼저 정리한다 (스레드가 살아있는 채로
         # 프로세스를 내리면 Qt가 abort 를 낸다).
         self.deid_widget.shutdown()
+        self.log_widget.shutdown()
         event.accept()
         QApplication.quit()
 
