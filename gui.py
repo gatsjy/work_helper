@@ -60,24 +60,153 @@ def install_exception_hook():
     프로그램이 아무 말 없이 사라진다. 최소한 무슨 일이 났는지는 보여줘야 한다.
     """
     original_hook = sys.excepthook
+    state = {"showing": False}
 
     def hook(exc_type, exc_value, exc_tb):
         detail = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
-        try:
-            box = QMessageBox()
-            box.setIcon(QMessageBox.Critical)
-            box.setWindowTitle("예기치 못한 오류")
-            box.setText(f"{exc_type.__name__}: {exc_value}")
-            box.setInformativeText(
-                "작업이 중단되었습니다. 아래 상세 내용을 개발자에게 전달해 주세요."
-            )
-            box.setDetailedText(detail)
-            box.exec()
-        except Exception:
-            pass
+
+        # 이미 오류창이 떠 있으면 또 띄우지 않는다. 예외가 반복해서 나는
+        # 상황(그리기 루프 등)에서 모달이 줄줄이 쌓이면 앱을 손도 못 댄다.
+        if not state["showing"]:
+            state["showing"] = True
+            try:
+                box = QMessageBox()
+                box.setIcon(QMessageBox.Critical)
+                box.setWindowTitle("예기치 못한 오류")
+                box.setText(f"{exc_type.__name__}: {exc_value}")
+                box.setInformativeText(
+                    "작업이 중단되었습니다. 아래 상세 내용을 개발자에게 전달해 주세요."
+                )
+                box.setDetailedText(detail)
+                # 반드시 맨 앞에 띄운다. 이 창이 메인 창 뒤나 화면 밖에 숨으면
+                # 모달이라 메인 창 전체가 잠기고, 사용자 눈에는 창 오른쪽 위
+                # [X] 가 회색으로 죽은 것처럼 보인다.
+                box.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+                box.show()
+                box.raise_()
+                box.activateWindow()
+                box.exec()
+            except Exception:
+                pass
+            finally:
+                state["showing"] = False
+
         original_hook(exc_type, exc_value, exc_tb)
 
     sys.excepthook = hook
+
+
+# ---------------------------------------------------------------------------
+# 버튼 스타일
+# ---------------------------------------------------------------------------
+# 예전에는 버튼마다 `background-color: #2563eb; ...` 를 인라인으로 박아서,
+# 같은 성격의 버튼끼리도 색·여백·모서리가 제각각이었다. 여기 한 곳에서
+# 변형(variant)만 고르게 한다.
+#
+# 입체감은 세 가지로 만든다:
+#   1) 위→아래 미세한 그라데이션 (평면 단색은 싸구려로 보인다)
+#   2) 채움보다 한 단계 밝은 1px 테두리 (가장자리 광원 효과)
+#   3) 눌렀을 때 위쪽 여백을 1px 늘려 실제로 눌리는 느낌
+BUTTON_VARIANTS = {
+    "primary": {                      # 주 동작 (추가)
+        "top": "#3b82f6", "bottom": "#1d4ed8", "border": "#60a5fa",
+        "hover_top": "#60a5fa", "hover_bottom": "#2563eb", "hover_border": "#93c5fd",
+        "pressed": "#1e40af", "text": "#ffffff",
+    },
+    "amber": {                        # 검증/시뮬레이션
+        "top": "#f59e0b", "bottom": "#b45309", "border": "#fbbf24",
+        "hover_top": "#fbbf24", "hover_bottom": "#d97706", "hover_border": "#fcd34d",
+        "pressed": "#92400e", "text": "#ffffff",
+    },
+    "sky": {                          # 보조 동작 (새로고침)
+        "top": "#38bdf8", "bottom": "#0284c7", "border": "#7dd3fc",
+        "hover_top": "#7dd3fc", "hover_bottom": "#0ea5e9", "hover_border": "#bae6fd",
+        "pressed": "#075985", "text": "#082f49",
+    },
+    "ghost": {                        # 조용한 기본 상태
+        "top": "#1e293b", "bottom": "#172033", "border": "#334155",
+        "hover_top": "#334155", "hover_bottom": "#1e293b", "hover_border": "#475569",
+        "pressed": "#0f172a", "text": "#cbd5e1",
+    },
+    "danger": {                       # 삭제 — 평소엔 조용히, 올리면 확실히
+        "top": "#3f1d1d", "bottom": "#2a1414", "border": "#7f1d1d",
+        "hover_top": "#dc2626", "hover_bottom": "#991b1b", "hover_border": "#f87171",
+        "pressed": "#7f1d1d", "text": "#fca5a5",
+    },
+}
+
+
+def button_qss(variant, padding="8px 18px", font_size=12, radius=7,
+               min_width=0, bold=True):
+    """변형 이름으로 버튼 QSS 를 만든다."""
+    v = BUTTON_VARIANTS[variant]
+    grad = ("qlineargradient(x1:0, y1:0, x2:0, y2:1, "
+            "stop:0 {0}, stop:1 {1})")
+    pad = [p.strip() for p in padding.split()]
+    pad_v = pad[0]
+    pad_h = pad[1] if len(pad) > 1 else pad[0]
+    pressed_top = f"{int(pad_v.rstrip('px')) + 1}px"
+    pressed_bottom = f"{max(int(pad_v.rstrip('px')) - 1, 0)}px"
+
+    return f"""
+        QPushButton {{
+            background: {grad.format(v['top'], v['bottom'])};
+            color: {v['text']};
+            border: 1px solid {v['border']};
+            border-radius: {radius}px;
+            padding: {pad_v} {pad_h};
+            font-size: {font_size}px;
+            font-weight: {'700' if bold else '500'};
+            min-width: {min_width}px;
+        }}
+        QPushButton:hover {{
+            background: {grad.format(v['hover_top'], v['hover_bottom'])};
+            border-color: {v['hover_border']};
+            color: #ffffff;
+        }}
+        QPushButton:pressed {{
+            background: {v['pressed']};
+            padding-top: {pressed_top};
+            padding-bottom: {pressed_bottom};
+        }}
+        QPushButton:disabled {{
+            background: #1e293b;
+            color: #475569;
+            border-color: #334155;
+        }}
+    """
+
+
+def filter_button_qss():
+    """필터 칩. 선택 여부를 :checked 로 처리해 클릭마다 다시 칠하지 않는다."""
+    return """
+        QPushButton {
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                        stop:0 #1e293b, stop:1 #172033);
+            color: #94a3b8;
+            border: 1px solid #334155;
+            border-radius: 14px;
+            padding: 7px 16px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        QPushButton:hover {
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                        stop:0 #334155, stop:1 #1e293b);
+            color: #e2e8f0;
+            border-color: #475569;
+        }
+        QPushButton:checked {
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                        stop:0 #3b82f6, stop:1 #1d4ed8);
+            color: #ffffff;
+            border: 1px solid #93c5fd;
+        }
+        QPushButton:checked:hover {
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                        stop:0 #60a5fa, stop:1 #2563eb);
+        }
+    """
 
 
 class CustomHeaderView(QHeaderView):
@@ -1215,13 +1344,15 @@ class TodoListWidget(QWidget):
 
         sim_layout = QVBoxLayout()
         btn_simulate = QPushButton("⚡ 다음날로 시뮬레이션\n(이월 테스트)")
-        btn_simulate.setStyleSheet("background-color: #d97706; color: white; font-weight: bold; padding: 10px 14px; font-size: 11px;")
+        btn_simulate.setStyleSheet(button_qss("amber", padding="10px 14px", font_size=11))
+        btn_simulate.setCursor(Qt.PointingHandCursor)
         btn_simulate.setToolTip("미완료 항목의 마감일을 어제로 변경하여 다음날 실행 시 이월 동작을 즉시 테스트합니다.")
         btn_simulate.clicked.connect(self.simulate_rollover)
         sim_layout.addWidget(btn_simulate)
 
         btn_refresh = QPushButton("🔄 새로고침")
-        btn_refresh.setStyleSheet("background-color: #0ea5e9; color: white; font-weight: bold; padding: 8px 14px; font-size: 11px;")
+        btn_refresh.setStyleSheet(button_qss("sky", padding="9px 14px", font_size=11))
+        btn_refresh.setCursor(Qt.PointingHandCursor)
         btn_refresh.setToolTip("할 일 목록을 새로고침합니다 (Ctrl+R)")
         btn_refresh.clicked.connect(self.load_and_render)
         sim_layout.addWidget(btn_refresh)
@@ -1245,7 +1376,9 @@ class TodoListWidget(QWidget):
         self.combo_priority.addItems(["보통", "높음", "낮음"])
 
         btn_add = QPushButton("➕ 추가")
-        btn_add.setStyleSheet("background-color: #2563eb; color: white; font-weight: bold; padding: 8px 20px; min-height: 28px; min-width: 70px; border-radius: 4px;")
+        btn_add.setStyleSheet(
+            button_qss("primary", padding="9px 22px", font_size=12, min_width=84)
+        )
         btn_add.setCursor(Qt.PointingHandCursor)
         btn_add.setFocusPolicy(Qt.StrongFocus)
         btn_add.clicked.connect(self.add_task)
@@ -1277,6 +1410,8 @@ class TodoListWidget(QWidget):
 
         for f_key, btn in self.filter_buttons.items():
             btn.setCheckable(True)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setStyleSheet(filter_button_qss())
             btn.clicked.connect(self.make_filter_slot(f_key))
             filter_box.addWidget(btn)
 
@@ -1307,7 +1442,6 @@ class TodoListWidget(QWidget):
         self.table.itemDoubleClicked.connect(self.edit_task)
 
         main_layout.addWidget(self.table)
-        self.update_filter_button_styles()
 
     def edit_task(self, item):
         if not item or item.column() != 3:
@@ -1335,18 +1469,12 @@ class TodoListWidget(QWidget):
         return lambda checked=False: self.set_filter(filter_key)
 
     def set_filter(self, filter_key):
+        # 선택 표시는 QSS 의 :checked 가 처리한다. 예전에는 클릭할 때마다
+        # 버튼 5개의 스타일시트를 통째로 다시 파싱했다.
         self.current_filter = filter_key
         for f_key, btn in self.filter_buttons.items():
             btn.setChecked(f_key == filter_key)
-        self.update_filter_button_styles()
         self.load_and_render()
-
-    def update_filter_button_styles(self):
-        for f_key, btn in self.filter_buttons.items():
-            if f_key == self.current_filter:
-                btn.setStyleSheet("background-color: #2563eb; color: white; font-weight: bold; border-radius: 4px; padding: 6px 12px;")
-            else:
-                btn.setStyleSheet("background-color: #1e293b; color: #94a3b8; border: 1px solid #334155; border-radius: 4px; padding: 6px 12px;")
 
     def add_task(self):
         title = self.txt_title.text().strip()
@@ -1485,7 +1613,10 @@ class TodoListWidget(QWidget):
             act_layout.setAlignment(Qt.AlignCenter)
 
             btn_del = QPushButton("🗑️ 삭제")
-            btn_del.setStyleSheet("background-color: #991b1b; color: #fca5a5; font-size: 11px; padding: 2px 8px;")
+            btn_del.setStyleSheet(
+                button_qss("danger", padding="4px 12px", font_size=11, radius=6)
+            )
+            btn_del.setCursor(Qt.PointingHandCursor)
             btn_del.clicked.connect(self._make_delete_slot(task_id, task_title))
 
             act_layout.addWidget(btn_del)
@@ -1556,10 +1687,21 @@ class SetAnalyzerGUI(QMainWindow):
         self.activateWindow()
 
     def quit_app(self):
-        if self.tray:
-            self.tray.hide()
-        self.deid_widget.shutdown()
-        self.log_widget.shutdown()
+        # 정리 중에 뭐가 터지든 종료는 반드시 일어나야 한다. 예전에는 shutdown()
+        # 하나가 예외를 내면 QApplication.quit() 까지 못 가서, 창은 닫혔는데
+        # 프로세스가 남았다.
+        try:
+            if self.tray:
+                self.tray.hide()
+        except Exception:
+            pass
+
+        for widget in (self.deid_widget, self.log_widget):
+            try:
+                widget.shutdown()
+            except Exception:
+                pass
+
         QApplication.quit()
 
     def init_ui(self):
