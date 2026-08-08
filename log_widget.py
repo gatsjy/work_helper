@@ -152,15 +152,8 @@ class LogAnalyzerWidget(QWidget):
         self.spin_max_lines.setToolTip("0 이면 전체를 읽습니다. 거대한 파일은 제한을 두세요.")
         opt_layout.addRow("최대 줄 수:", self.spin_max_lines)
 
-        self.spin_threshold = QSpinBox()
-        self.spin_threshold.setRange(10, 90)
-        self.spin_threshold.setValue(40)
-        self.spin_threshold.setSuffix(" %")
-        self.spin_threshold.setToolTip(
-            "템플릿을 같은 것으로 볼 유사도 기준.\n"
-            "낮추면 더 크게 뭉치고, 높이면 더 잘게 나뉩니다."
-        )
-        opt_layout.addRow("템플릿 유사도:", self.spin_threshold)
+        opt_layout.addRow(QLabel("묶는 정도:"))
+        opt_layout.addRow(self._build_grouping_buttons())
         layout.addWidget(opt_group)
 
         self.btn_run = QPushButton("🔍 분석 실행")
@@ -208,6 +201,57 @@ class LogAnalyzerWidget(QWidget):
         layout.addWidget(self.btn_copy)
 
         return panel
+
+    # 유사도 퍼센트는 내부 구현 수치다. 사용자는 '얼마나 뭉칠지'만 고르면 된다.
+    # (0.4 = Drain 논문 권장값 → 보통)
+    GROUPING_PRESETS = [
+        ("낮음", 0.65, "잘게 나눔. 비슷한 로그도 따로 셉니다.\n"
+                       "서로 다른 사건이 한 덩어리로 보일 때 쓰세요.\n"
+                       "단점: 템플릿이 늘어 '드묾' 판정이 희석됩니다."),
+        ("보통", 0.40, "권장값. 대부분 이대로 두면 됩니다.\n"
+                       "Drain 논문 기본값입니다."),
+        ("높음", 0.20, "크게 뭉침. 템플릿 수가 줄어 요약이 짧아집니다.\n"
+                       "단점: 다른 사건이 합쳐져 <*> 범벅이 될 수 있습니다."),
+    ]
+
+    def _build_grouping_buttons(self):
+        holder = QWidget()
+        row = QHBoxLayout(holder)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+
+        self.grouping_buttons = []
+        self.threshold = 0.40
+
+        for label, value, tip in self.GROUPING_PRESETS:
+            button = QPushButton(label)
+            button.setCheckable(True)
+            button.setCursor(Qt.PointingHandCursor)
+            button.setToolTip(tip)
+            button.clicked.connect(
+                lambda _=False, v=value: self.set_grouping(v)
+            )
+            row.addWidget(button)
+            self.grouping_buttons.append((button, value))
+
+        self.set_grouping(0.40)
+        return holder
+
+    def set_grouping(self, value):
+        self.threshold = value
+        for button, preset_value in self.grouping_buttons:
+            selected = preset_value == value
+            button.setChecked(selected)
+            button.setStyleSheet(
+                "background-color: #2563eb; color: white; font-weight: bold;"
+                "border-radius: 4px; padding: 6px 10px;"
+                if selected else
+                "background-color: #1e293b; color: #94a3b8;"
+                "border: 1px solid #334155; border-radius: 4px; padding: 6px 10px;"
+            )
+        # 이미 분석한 결과가 있으면 곧바로 다시 묶어 보여준다.
+        if self.report and self.log_path:
+            self.start_analysis()
 
     def _build_right(self):
         splitter = QSplitter(Qt.Vertical)
@@ -325,7 +369,7 @@ class LogAnalyzerWidget(QWidget):
             self.log_path,
             self.spin_max_lines.value(),
             encoding,
-            self.spin_threshold.value() / 100.0,
+            self.threshold,
         )
         self.thread = QThread(self)
         self.worker.moveToThread(self.thread)

@@ -1,3 +1,4 @@
+import os
 import sys
 import traceback
 from PySide6.QtWidgets import (
@@ -5,10 +6,46 @@ from PySide6.QtWidgets import (
     QLabel, QPushButton, QComboBox, QCheckBox, QTabWidget, QTableWidget,
     QTableWidgetItem, QMessageBox, QGroupBox, QHeaderView, QLineEdit,
     QFrame, QTextEdit, QSplashScreen, QProgressBar, QAbstractItemView,
-    QGraphicsOpacityEffect, QInputDialog, QMenu
+    QGraphicsOpacityEffect, QInputDialog, QMenu, QSystemTrayIcon
 )
 from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QSequentialAnimationGroup, Signal
-from PySide6.QtGui import QFont, QKeySequence, QShortcut
+from PySide6.QtGui import QFont, QKeySequence, QShortcut, QIcon
+
+
+def resource_path(*parts):
+    """번들된 리소스 경로. 소스 실행과 PyInstaller 실행 모두에서 동작한다.
+
+    --onefile 로 얼리면 데이터 파일이 sys._MEIPASS 임시 폴더에 풀린다.
+    __file__ 기준으로 찾으면 얼린 exe 에서 아이콘을 못 찾는다.
+    """
+    base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, *parts)
+
+
+def app_icon():
+    """고양이 아이콘. 없으면 빈 QIcon (아이콘 없다고 앱이 죽으면 안 된다)."""
+    for name in ("cat.ico", "cat.png"):
+        path = resource_path("assets", name)
+        if os.path.exists(path):
+            return QIcon(path)
+    return QIcon()
+
+
+def set_windows_app_id():
+    """윈도우 작업표시줄이 python.exe 대신 이 앱의 아이콘을 쓰게 한다.
+
+    AppUserModelID 를 지정하지 않으면 작업표시줄 아이콘이 파이썬 것으로
+    남는다. 윈도우 전용이고, 실패해도 무시한다.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            "gatsjy.workhelper.desktop.1"
+        )
+    except Exception:
+        pass
 from todo_manager import TodoManager
 from deid_widget import DeIdWidget
 from log_widget import LogAnalyzerWidget
@@ -1474,9 +1511,56 @@ class SetAnalyzerGUI(QMainWindow):
         super().__init__()
         self.setWindowTitle("Work Helper")
         self.resize(1180, 800)
+        self.setWindowIcon(app_icon())
 
+        self.tray = None
         self.init_ui()
         self.apply_stylesheet()
+        self.init_tray()
+
+    def init_tray(self):
+        """트레이 아이콘. 트레이를 못 쓰는 환경이면 조용히 건너뛴다."""
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return
+
+        icon = app_icon()
+        if icon.isNull():
+            return
+
+        self.tray = QSystemTrayIcon(icon, self)
+        self.tray.setToolTip("Work Helper")
+
+        menu = QMenu(self)
+        act_show = menu.addAction("🐱 열기")
+        act_show.triggered.connect(self.show_from_tray)
+        act_hide = menu.addAction("🙈 트레이로 숨기기")
+        act_hide.triggered.connect(self.hide)
+        menu.addSeparator()
+        act_quit = menu.addAction("❌ 종료")
+        act_quit.triggered.connect(self.quit_app)
+
+        self.tray.setContextMenu(menu)
+        self.tray.activated.connect(self.on_tray_activated)
+        self.tray.show()
+
+    def on_tray_activated(self, reason):
+        if reason in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick):
+            if self.isVisible() and not self.isMinimized():
+                self.hide()
+            else:
+                self.show_from_tray()
+
+    def show_from_tray(self):
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def quit_app(self):
+        if self.tray:
+            self.tray.hide()
+        self.deid_widget.shutdown()
+        self.log_widget.shutdown()
+        QApplication.quit()
 
     def init_ui(self):
         self.main_tab_widget = QTabWidget()
@@ -1508,13 +1592,11 @@ class SetAnalyzerGUI(QMainWindow):
         )
 
     def closeEvent(self, event):
-        # 윈도우 상단 우측 표준 [X] 버튼 클릭 시 깔끔하게 즉시 종료.
-        # 백그라운드 워커가 돌고 있으면 먼저 정리한다 (스레드가 살아있는 채로
-        # 프로세스를 내리면 Qt가 abort 를 낸다).
-        self.deid_widget.shutdown()
-        self.log_widget.shutdown()
+        # [X] 는 예전부터 '즉시 종료'였고 그대로 둔다. 트레이가 생겼다고
+        # 몰래 트레이로 숨기면, 사용자는 껐다고 믿는데 프로세스가 남는다.
+        # 트레이로 보내려면 트레이 메뉴나 아이콘 클릭을 쓴다.
         event.accept()
-        QApplication.quit()
+        self.quit_app()
 
     def apply_stylesheet(self):
         self.setStyleSheet("""
@@ -1632,7 +1714,11 @@ class AppSplashScreen(QSplashScreen):
 
 
 def run_gui():
+    set_windows_app_id()
     app = QApplication(sys.argv)
+    app.setWindowIcon(app_icon())
+    # 트레이로 숨긴 상태에서 마지막 창이 닫혔다고 앱이 끝나면 안 된다.
+    app.setQuitOnLastWindowClosed(False)
     install_exception_hook()
 
     # Launch Splash Screen (force foreground popup)

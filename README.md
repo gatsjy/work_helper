@@ -8,6 +8,13 @@
 
 ## 🌟 핵심 기능 (Key Features)
 
+### 0. 🐱 트레이 아이콘
+작업표시줄 알림 영역에 고양이 아이콘이 상주합니다. 아이콘을 클릭하면 창을 숨기거나 다시 띄우고, 우클릭 메뉴로 `열기 / 트레이로 숨기기 / 종료`를 할 수 있습니다.
+
+> 창의 `[X]` 버튼은 **예전처럼 즉시 종료**입니다. 껐다고 생각했는데 프로세스가 남아 있는 상황을 만들지 않기 위해서입니다. 트레이로 보내려면 트레이 메뉴를 쓰세요.
+
+아이콘은 외부에서 받아온 것이 아니라 `tools/make_icon.py`가 직접 그립니다 — 라이선스가 얽히지 않고, 16px에서도 형태가 남도록 크기별로 디테일을 조절합니다.
+
 ### 1. ⌨️ 키보드 직관 탭 전환 단축키 (`F1`~`F5`)
 - **`F1`**: `📝 스마트 Todo List`
 - **`F2`**: `📊 엑셀 집합 분석`
@@ -130,6 +137,7 @@ Disk quota exceeded on <PATH>, <NUM>% used ×      1   ← 진짜 신호
 - **스택 트레이스 접기**: Java 스택 트레이스와 Python `Traceback`은 **하나의 사건**입니다. 30줄로 세면 통계가 통째로 망가집니다. 파이썬 트레이스백의 마지막 `ValueError: ...` 줄까지 상태를 추적해 함께 묶습니다.
 - **백그라운드 실행**: 대용량 파일에서도 창이 얼지 않으며, 줄 수 제한을 걸 수 있습니다.
 - **드릴다운**: 템플릿을 클릭하면 실제 원본 로그와 줄 번호를 그대로 보여줍니다 — 요약만 믿고 끝내지 않도록.
+- **묶는 정도 `낮음 / 보통 / 높음`**: 유사도 퍼센트는 내부 구현 수치라 노출하지 않습니다. 대부분 `보통`(Drain 논문 기본값)이면 됩니다. 서로 다른 사건이 한 덩어리로 보이면 `낮음`, 요약이 너무 길면 `높음`. 버튼을 누르면 곧바로 다시 분석합니다.
 
 ---
 
@@ -192,7 +200,13 @@ test_*.py              # pytest 테스트 (110개)
 `configs/`는 런타임에 읽는 데이터 파일이므로 `--add-data`로 함께 넣어야 합니다.
 
 ```bash
-pyinstaller --noconsole --onefile --name "ExcelSetAnalyzer" --add-data "configs;configs" --collect-submodules hkdeid --exclude-module matplotlib --exclude-module PIL --exclude-module Pillow --exclude-module sqlalchemy --exclude-module psycopg2 --exclude-module scipy --exclude-module paramiko --exclude-module tkinter --exclude-module PySide6.QtWebEngineCore --exclude-module PySide6.Qt3DAnimation --exclude-module PySide6.QtDesigner --exclude-module PySide6.QtQuick --exclude-module PySide6.QtQml --exclude-module PySide6.QtSql --exclude-module PySide6.QtTest --exclude-module PySide6.QtMultimedia gui.py
+pyinstaller --noconsole --onefile --name "WorkHelper" --icon assets/cat.ico --add-data "configs;configs" --add-data "assets;assets" --collect-submodules hkdeid --exclude-module matplotlib --exclude-module PIL --exclude-module Pillow --exclude-module sqlalchemy --exclude-module psycopg2 --exclude-module scipy --exclude-module paramiko --exclude-module tkinter --exclude-module PySide6.QtWebEngineCore --exclude-module PySide6.Qt3DAnimation --exclude-module PySide6.QtDesigner --exclude-module PySide6.QtQuick --exclude-module PySide6.QtQml --exclude-module PySide6.QtSql --exclude-module PySide6.QtTest --exclude-module PySide6.QtMultimedia gui.py
+```
+
+아이콘을 다시 그리려면:
+
+```bash
+python tools/make_icon.py
 ```
 
 > `lxml`과 `cryptography`는 제외 목록에서 뺐습니다. openpyxl이 상황에 따라 `lxml`을 사용하므로 무조건 제외하면 비식별화 경로에서 실패할 수 있습니다.

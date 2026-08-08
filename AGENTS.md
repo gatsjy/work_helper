@@ -24,6 +24,8 @@
 | `excel_processor.py` | Set operations + styled Excel report export |
 | `todo_manager.py` | Todo persistence (atomic writes, corruption recovery) |
 | `hkdeid/`, `configs/` | **Vendored from [HKDeID](https://github.com/gatsjy/HKDeID) — keep unmodified** |
+| `tools/make_icon.py` | Draws the cat tray/window icon; regenerates `assets/cat.{png,ico}` |
+| `assets/` | Generated icons — committed, loaded at runtime via `resource_path()` |
 
 ### Rules for the vendored `hkdeid/` package
 - **Do not edit files under `hkdeid/`.** Upstream fixes should be pulled in wholesale.
@@ -33,7 +35,10 @@
 ## 🖥️ Application Features (`gui.py`)
 - **100% Clipboard (`Ctrl+V`) Operation** for tabs 2 and 3.
 - **Startup Splash Screen**: progress reflects real work — do not reintroduce `time.sleep()` fake progress.
-- **Shortcuts**: `F1`–`F5` switch tabs, one per tab. Todo refresh is `Ctrl+R` (it used to own `F5`, which collided with the tab numbering). Any new tab takes the next function key and must be added to `closeEvent`'s shutdown list if it owns a thread.
+- **Shortcuts**: `F1`–`F5` switch tabs, one per tab. Todo refresh is `Ctrl+R` (it used to own `F5`, which collided with the tab numbering). Any new tab takes the next function key and must be added to `quit_app()`'s shutdown list if it owns a thread.
+- **Tray icon**: `QSystemTrayIcon` with a show/hide/quit menu. The window `[X]` must keep quitting the process — do **not** make it hide to tray, or users who think they closed the app are left with a live process. `setQuitOnLastWindowClosed(False)` is required so hiding to tray does not exit.
+- **Resources**: load bundled files through `resource_path()`, which honours `sys._MEIPASS`. Referencing `__file__` directly breaks under `--onefile`.
+- **UI wording**: expose intent, not implementation numbers. The log tab shows `낮음/보통/높음` buttons rather than a similarity percentage — the percentage is a Drain internal.
 - **Floating Toast Notifications** (`ToastNotification`), stacked so concurrent toasts do not overlap.
 - **Tab 1 — 📝 Smart Todo List (`F1`)**: daily rollover, progress bar, filters. `F5` refreshes.
 - **Tab 2 — 📊 Set Analyzer (`F2`)**: intersection / A-only / B-only / symmetric difference / union.
