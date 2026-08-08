@@ -31,7 +31,7 @@ test_output_report.xlsx
 # 사용자 정의 컬럼 별칭 (병원별 설정)
 configs/aliases.yaml
 
-# 빌드 산출물 — 리포지토리에 커밋하지 않는다.
-# dist/ 의 exe+zip 이 약 147MB 였고, 빌드할 때마다 히스토리에 새 사본이 쌓인다.
-# 배포는 GitHub Releases 로 하는 것이 맞다.
-dist/
+# dist/ 의 실행 파일은 리포지토리에 함께 둔다 (파이썬 없이 바로 받아 쓰라고).
+# 대신 빌드 중간 산출물은 계속 제외한다.
+dist/*
+!dist/WorkHelper.exe
