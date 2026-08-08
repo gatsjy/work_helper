@@ -31,6 +31,27 @@ def app_icon():
     return QIcon()
 
 
+def bring_to_front(window):
+    """창을 화면 맨 앞으로 올린다. windowFlags 는 절대 건드리지 않는다.
+
+    플래그를 켰다 끄는 방식은 PySide6 에서 다른 힌트까지 지워버린다
+    (run_gui 주석 참고). Win32 API 로 포커스만 가져오면 부작용이 없다.
+    """
+    window.raise_()
+    window.activateWindow()
+
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        hwnd = int(window.winId())
+        user32 = ctypes.windll.user32
+        user32.ShowWindow(hwnd, 9)          # SW_RESTORE
+        user32.SetForegroundWindow(hwnd)
+    except Exception:
+        pass
+
+
 def set_windows_app_id():
     """윈도우 작업표시줄이 python.exe 대신 이 앱의 아이콘을 쓰게 한다.
 
@@ -1878,21 +1899,23 @@ def run_gui():
 
     splash.set_progress(90, "테마 및 단축키 초기화 중...")
     splash.set_progress(100, "준비 완료! 메인 화면으로 이동합니다.")
-    # Bring main window to absolute front of screen on launch
-    window.setWindowFlags(window.windowFlags() | Qt.WindowStaysOnTopHint)
+
+    # 창을 맨 앞으로 올릴 때 windowFlags 를 건드리지 않는다.
+    #
+    # 예전 코드는 WindowStaysOnTopHint 를 켰다가 600ms 뒤 `flags & ~hint` 로
+    # 껐다. PySide6 에서 그 연산은 지정한 비트만 지우지 않는다. 실측:
+    #
+    #     0x0804F001  &  ~Qt.WindowStaysOnTopHint  ->  0x0000F001
+    #
+    # 0x00040000(StaysOnTop) 뿐 아니라 0x08000000(WindowCloseButtonHint)까지
+    # 함께 날아간다. 그러면 Qt 가 시스템 메뉴의 SC_CLOSE 에 MF_GRAYED 를 걸고,
+    # 사용자 눈에는 제목 표시줄 [X] 가 회색으로 죽어 닫을 수 없게 된다.
+    # (이 저장소에서 f74d4bd 로 한 번 고쳤다가 되살아난 회귀다.)
     window.show()
     window.raise_()
     window.activateWindow()
     splash.finish(window)
-
-    # Reset WindowStaysOnTopHint after 600ms so user can use window normally
-    def reset_top_hint():
-        window.setWindowFlags(window.windowFlags() & ~Qt.WindowStaysOnTopHint)
-        window.show()
-        window.raise_()
-        window.activateWindow()
-
-    QTimer.singleShot(600, reset_top_hint)
+    bring_to_front(window)
 
     sys.exit(app.exec())
 
