@@ -1,19 +1,45 @@
 import sys
-import os
-import re
-import time
-import json
+import traceback
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QComboBox, QCheckBox, QTabWidget, QTableWidget,
-    QTableWidgetItem, QFileDialog, QMessageBox, QGroupBox, QHeaderView, QLineEdit,
+    QTableWidgetItem, QMessageBox, QGroupBox, QHeaderView, QLineEdit,
     QFrame, QTextEdit, QSplashScreen, QProgressBar, QAbstractItemView,
-    QGraphicsOpacityEffect, QInputDialog, QSpinBox, QDateEdit, QDialog,
-    QRadioButton, QButtonGroup, QFormLayout
+    QGraphicsOpacityEffect, QInputDialog, QMenu
 )
-from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QSequentialAnimationGroup, Signal, QDate
+from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QSequentialAnimationGroup, Signal
 from PySide6.QtGui import QFont, QKeySequence, QShortcut
 from todo_manager import TodoManager
+from deid_widget import DeIdWidget
+from clipboard_parser import parse_table, column_letter
+
+
+def install_exception_hook():
+    """슬롯에서 터진 예외를 사용자에게 보여준다.
+
+    PySide6는 파이썬 예외가 슬롯 밖으로 새어나가면 프로세스를 중단시킨다.
+    --noconsole 로 빌드된 exe에서는 트레이스백이 갈 곳이 없어서, 사용자 입장에선
+    프로그램이 아무 말 없이 사라진다. 최소한 무슨 일이 났는지는 보여줘야 한다.
+    """
+    original_hook = sys.excepthook
+
+    def hook(exc_type, exc_value, exc_tb):
+        detail = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        try:
+            box = QMessageBox()
+            box.setIcon(QMessageBox.Critical)
+            box.setWindowTitle("예기치 못한 오류")
+            box.setText(f"{exc_type.__name__}: {exc_value}")
+            box.setInformativeText(
+                "작업이 중단되었습니다. 아래 상세 내용을 개발자에게 전달해 주세요."
+            )
+            box.setDetailedText(detail)
+            box.exec()
+        except Exception:
+            pass
+        original_hook(exc_type, exc_value, exc_tb)
+
+    sys.excepthook = hook
 
 
 class CustomHeaderView(QHeaderView):
@@ -32,6 +58,12 @@ class CustomHeaderView(QHeaderView):
 
 class ToastNotification(QLabel):
     """화면 하단에 부드럽게 타올라 떴다가 사라지는 플로팅 토스트 알림 메시지"""
+
+    # 살아있는 토스트들. 겹치지 않게 위로 쌓아 올린다.
+    # (예전에는 전부 같은 좌표에 그려져서 여러 개가 뜨면 글자가 뭉개졌다.)
+    _active = []
+    MAX_VISIBLE = 4
+
     def __init__(self, parent_widget, message: str, duration_ms: int = 1800):
         super().__init__(parent_widget)
         self.setText(message)
@@ -47,10 +79,22 @@ class ToastNotification(QLabel):
         """)
         self.adjustSize()
 
+        # 죽은 위젯 정리 후, 남은 개수만큼 위로 띄운다.
+        ToastNotification._active = [
+            t for t in ToastNotification._active if t is not self and t.isVisible()
+        ]
+        while len(ToastNotification._active) >= self.MAX_VISIBLE:
+            oldest = ToastNotification._active.pop(0)
+            oldest.hide()
+            oldest.deleteLater()
+
+        stack_offset = len(ToastNotification._active) * (self.height() + 8)
+        ToastNotification._active.append(self)
+
         # Center horizontally at the bottom of parent widget
         parent_rect = parent_widget.rect()
         x = max(20, (parent_rect.width() - self.width()) // 2)
-        y = max(20, parent_rect.height() - self.height() - 40)
+        y = max(20, parent_rect.height() - self.height() - 40 - stack_offset)
         self.move(x, y)
 
         self.opacity_effect = QGraphicsOpacityEffect(self)
@@ -72,11 +116,16 @@ class ToastNotification(QLabel):
         self.group.addAnimation(self.anim_fade_in)
         self.group.addPause(duration_ms)
         self.group.addAnimation(self.anim_fade_out)
-        self.group.finished.connect(self.deleteLater)
+        self.group.finished.connect(self._on_finished)
 
         self.show()
         self.raise_()
         self.group.start()
+
+    def _on_finished(self):
+        if self in ToastNotification._active:
+            ToastNotification._active.remove(self)
+        self.deleteLater()
 
     @staticmethod
     def show_toast(parent_widget, message: str, duration_ms: int = 1800):
@@ -134,13 +183,24 @@ class CopyableTableWidget(QTableWidget):
 
 class SetAnalyzerWidget(QWidget):
     """기존 집합 분석(교집합/차집합/대칭차집합/합집합) 위젯"""
+    # 붙여넣기는 textChanged 를 여러 번 때린다. 입력이 멎은 뒤 한 번만 계산한다.
+    ANALYZE_DEBOUNCE_MS = 180
+
     def __init__(self):
         super().__init__()
         self.current_file = None
         self.processor = None
         self.analysis_result = None
         self.tab_keys = ['intersection', 'a_only', 'b_only', 'sym_diff', 'union']
+
+        self._analyze_timer = QTimer(self)
+        self._analyze_timer.setSingleShot(True)
+        self._analyze_timer.timeout.connect(self.run_analysis)
+
         self.init_ui()
+
+    def schedule_analysis(self):
+        self._analyze_timer.start(self.ANALYZE_DEBOUNCE_MS)
 
     def init_ui(self):
         main_layout = QHBoxLayout(self)
@@ -172,7 +232,7 @@ class SetAnalyzerWidget(QWidget):
         layout_a = QVBoxLayout(group_a)
         self.txt_paste_a = QTextEdit()
         self.txt_paste_a.setPlaceholderText("엑셀에서 복사(Ctrl+C)한 1번째 데이터를 붙여넣으세요 (Ctrl+V)...")
-        self.txt_paste_a.textChanged.connect(self.run_analysis)
+        self.txt_paste_a.textChanged.connect(self.schedule_analysis)
         layout_a.addWidget(self.txt_paste_a)
         left_layout.addWidget(group_a)
 
@@ -181,7 +241,7 @@ class SetAnalyzerWidget(QWidget):
         layout_b = QVBoxLayout(group_b)
         self.txt_paste_b = QTextEdit()
         self.txt_paste_b.setPlaceholderText("엑셀에서 복사(Ctrl+C)한 2번째 데이터를 붙여넣으세요 (Ctrl+V)...")
-        self.txt_paste_b.textChanged.connect(self.run_analysis)
+        self.txt_paste_b.textChanged.connect(self.schedule_analysis)
         layout_b.addWidget(self.txt_paste_b)
         left_layout.addWidget(group_b)
 
@@ -267,6 +327,10 @@ class SetAnalyzerWidget(QWidget):
         self.tabs.addTab(self.tables['b_only'], "🔴 B전용/차집합B (0)")
         self.tabs.addTab(self.tables['sym_diff'], "🟣 통합 대칭차집합 (0)")
         self.tabs.addTab(self.tables['union'], "🟢 합집합 (0)")
+        # 탭을 바꿔도 검색어가 그대로 적용되도록 다시 필터링한다.
+        self.tabs.currentChanged.connect(
+            lambda _: self.filter_table(self.txt_search.text())
+        )
 
         right_panel.addWidget(self.tabs)
         main_layout.addLayout(right_panel)
@@ -348,43 +412,95 @@ class SetAnalyzerWidget(QWidget):
 
             current_table.setRowHidden(row, not match)
 
-    def copy_values_only(self):
-        curr_tab_idx = self.tabs.currentIndex()
-        tab_key = self.tab_keys[curr_tab_idx]
+    def visible_items(self):
+        """현재 탭에서 '화면에 보이는' 항목만 돌려준다.
+
+        예전에는 검색으로 걸러낸 상태에서 복사해도 전체가 복사됐다.
+        사용자는 걸러진 것만 복사됐다고 믿고 붙여넣는다 — 조용히 틀린 결과.
+        """
+        tab_idx = self.tabs.currentIndex()
+        if not (0 <= tab_idx < len(self.tab_keys)):
+            return [], False
+
+        tab_key = self.tab_keys[tab_idx]
         if not self.analysis_result or tab_key not in self.analysis_result:
-            return
+            return [], False
 
         items = self.analysis_result[tab_key]
-        text = "\n".join(item['val'] for item in items)
+        query = self.txt_search.text().strip().lower()
+        if not query:
+            return items, False
 
-        QApplication.clipboard().setText(text)
-        ToastNotification.show_toast(self.window(), f"📋 데이터 값 {len(items)}개가 클립보드에 복사되었습니다!")
+        filtered = [
+            item for item in items
+            if query in str(item['val']).lower()
+            or query in str(item['origin']).lower()
+        ]
+        return filtered, True
+
+    def copy_values_only(self):
+        items, filtered = self.visible_items()
+        if not items:
+            ToastNotification.show_toast(self.window(), "복사할 데이터가 없습니다.")
+            return
+
+        QApplication.clipboard().setText("\n".join(item['val'] for item in items))
+        suffix = " (검색 결과만)" if filtered else ""
+        ToastNotification.show_toast(
+            self.window(),
+            f"📋 데이터 값 {len(items)}개가 클립보드에 복사되었습니다!{suffix}"
+        )
 
     def copy_table_tsv(self):
-        curr_tab_idx = self.tabs.currentIndex()
-        tab_key = self.tab_keys[curr_tab_idx]
-        if not self.analysis_result or tab_key not in self.analysis_result:
+        items, filtered = self.visible_items()
+        if not items:
+            ToastNotification.show_toast(self.window(), "복사할 데이터가 없습니다.")
             return
 
-        items = self.analysis_result[tab_key]
         headers = ["데이터값", "구분(출처)", "A존재", "B존재"]
-        rows = [f"{item['val']}\t{item['origin']}\t{item['in_a']}\t{item['in_b']}" for item in items]
-        text = "\n".join([ "\t".join(headers) ] + rows)
-
-        QApplication.clipboard().setText(text)
-        ToastNotification.show_toast(self.window(), f"📊 표 데이터 {len(items)}행이 클립보드에 복사되었습니다!")
+        rows = [
+            f"{item['val']}\t{item['origin']}\t{item['in_a']}\t{item['in_b']}"
+            for item in items
+        ]
+        QApplication.clipboard().setText("\n".join(["\t".join(headers)] + rows))
+        suffix = " (검색 결과만)" if filtered else ""
+        ToastNotification.show_toast(
+            self.window(),
+            f"📊 표 데이터 {len(items)}행이 클립보드에 복사되었습니다!{suffix}"
+        )
 
 
 class ColumnConcatWidget(QWidget):
     """신규: 클립보드 붙여넣기 기반 컬럼 Concat(병합) 위젯"""
+    # 붙여넣기/타이핑마다 전체 재계산을 돌리면 큰 데이터에서 UI가 끊긴다.
+    # 입력이 멎은 뒤에 한 번만 계산한다.
+    RECOMPUTE_DEBOUNCE_MS = 180
+
     def __init__(self):
         super().__init__()
         self.concat_raw_rows = []
         self.concat_headers = []
         self.selected_indices = []
         self.concat_results = []
+        # 붙여넣기 전에 컬럼 칩이 클릭될 일은 없지만, 이 플래그가 없으면
+        # AttributeError 로 앱이 죽는다.
+        self.is_custom_sequence = False
+
+        self._recompute_timer = QTimer(self)
+        self._recompute_timer.setSingleShot(True)
+        self._recompute_timer.timeout.connect(self.compute_and_render)
+
+        self._parse_timer = QTimer(self)
+        self._parse_timer.setSingleShot(True)
+        self._parse_timer.timeout.connect(self.reparse_pasted_text)
 
         self.init_ui()
+
+    def schedule_recompute(self):
+        self._recompute_timer.start(self.RECOMPUTE_DEBOUNCE_MS)
+
+    def schedule_reparse(self):
+        self._parse_timer.start(self.RECOMPUTE_DEBOUNCE_MS)
 
     def init_ui(self):
         main_layout = QHBoxLayout(self)
@@ -405,7 +521,7 @@ class ColumnConcatWidget(QWidget):
         paste_layout = QVBoxLayout(paste_group)
         self.txt_paste = QTextEdit()
         self.txt_paste.setPlaceholderText("엑셀에서 복사(Ctrl+C)한 표 데이터를 여기에 붙여넣으세요 (Ctrl+V)...")
-        self.txt_paste.textChanged.connect(self.on_paste_text_changed)
+        self.txt_paste.textChanged.connect(self.schedule_reparse)
         paste_layout.addWidget(self.txt_paste)
 
         btn_box = QHBoxLayout()
@@ -426,7 +542,7 @@ class ColumnConcatWidget(QWidget):
 
         self.chk_header = QCheckBox("첫번째 행을 컬럼 헤더로 사용")
         self.chk_header.setChecked(True)
-        self.chk_header.toggled.connect(self.on_paste_text_changed)
+        self.chk_header.toggled.connect(self.reparse_pasted_text)
         opt_layout.addWidget(self.chk_header)
 
         opt_layout.addWidget(QLabel("열 간 구분자 (Separator):"))
@@ -446,21 +562,23 @@ class ColumnConcatWidget(QWidget):
         self.txt_custom_delim = QLineEdit()
         self.txt_custom_delim.setPlaceholderText("사용자 지정 구분자 입력...")
         self.txt_custom_delim.setVisible(False)
-        self.txt_custom_delim.textChanged.connect(self.compute_and_render)
+        self.txt_custom_delim.textChanged.connect(self.schedule_recompute)
         opt_layout.addWidget(self.txt_custom_delim)
 
+        # 접두/접미사는 '타이핑할 때마다' 클립보드를 덮어쓰지 않는다.
+        # 예전에는 한 글자 칠 때마다 사용자의 클립보드를 통째로 날리고
+        # 토스트를 띄웠다. 재계산만 디바운스로 돌리고, 복사는 명시적 동작
+        # (붙여넣기 / 컬럼 선택 / 프리셋 / 복사 버튼)에서만 한다.
         opt_layout.addWidget(QLabel("고정 접두사 (Prefix):"))
         self.txt_prefix = QLineEdit()
         self.txt_prefix.setPlaceholderText("예: SELECT * FROM  또는  '")
-        self.txt_prefix.textChanged.connect(self.compute_and_render)
-        self.txt_prefix.textChanged.connect(self.auto_copy_results)
+        self.txt_prefix.textChanged.connect(self.schedule_recompute)
         opt_layout.addWidget(self.txt_prefix)
 
         opt_layout.addWidget(QLabel("고정 접미사 (Suffix):"))
         self.txt_suffix = QLineEdit()
         self.txt_suffix.setPlaceholderText("예: ;  또는  ',")
-        self.txt_suffix.textChanged.connect(self.compute_and_render)
-        self.txt_suffix.textChanged.connect(self.auto_copy_results)
+        self.txt_suffix.textChanged.connect(self.schedule_recompute)
         opt_layout.addWidget(self.txt_suffix)
 
         # SQL Presets
@@ -667,62 +785,21 @@ class ColumnConcatWidget(QWidget):
             col_idx = logical_index - 1
             self.add_column_to_seq(col_idx)
 
-    def on_paste_text_changed(self):
+    def reparse_pasted_text(self):
         text = self.txt_paste.toPlainText()
         if not text.strip():
             self.clear_data()
             return
 
-        lines = [line for line in text.splitlines() if line.strip()]
-        if not lines:
+        # 파싱은 clipboard_parser 로 일원화했다. 예전에는 첫 10줄에 콤마가
+        # 하나라도 있으면 콤마로 쪼개서 "홍길동, 대리" 같은 값이 잘려나갔다.
+        parsed = parse_table(text)
+        if not parsed:
             self.clear_data()
             return
 
-        first_10_lines = lines[:10]
-        has_tabs = any('\t' in line for line in first_10_lines)
-        has_commas = any(',' in line for line in first_10_lines)
-
-        if has_tabs or has_commas:
-            sep = '\t' if has_tabs else ','
-            parsed = [line.split(sep) for line in lines]
-        else:
-            # Smart 1D Vertical Stream Auto-Detection
-            num_lines = len(lines)
-            detected_k = 0
-            for k in range(2, 31):
-                if num_lines >= k * 2:
-                    matches = 0
-                    checks = 0
-                    for idx in range(k, num_lines - k, k):
-                        checks += 1
-                        if lines[idx] == lines[idx + k]:
-                            matches += 1
-                    if checks >= 2 and (matches / checks) >= 0.5:
-                        detected_k = k
-                        break
-
-            if detected_k >= 2:
-                parsed = []
-                for i in range(0, num_lines, detected_k):
-                    chunk = lines[i:i + detected_k]
-                    if len(chunk) < detected_k:
-                        chunk.extend([""] * (detected_k - len(chunk)))
-                    parsed.append(chunk)
-            else:
-                multi_space_lines = [l for l in lines[:20] if re.search(r'\s{2,}', l)]
-                if len(multi_space_lines) >= min(len(lines), 4):
-                    parsed = [re.split(r'\s{2,}', line) for line in lines]
-                else:
-                    parsed = [[line] for line in lines]
-
         max_cols = max((len(r) for r in parsed), default=1)
-
-        def get_col_letter(idx):
-            res = ""
-            while idx >= 0:
-                res = chr((idx % 26) + 65) + res
-                idx = (idx // 26) - 1
-            return res
+        get_col_letter = column_letter
 
         if self.chk_header.isChecked() and len(parsed) > 0:
             header_row = parsed[0]
@@ -756,12 +833,7 @@ class ColumnConcatWidget(QWidget):
             self.chips_layout.addWidget(self.lbl_chips_hint)
             return
 
-        def get_col_letter(idx):
-            res = ""
-            while idx >= 0:
-                res = chr((idx % 26) + 65) + res
-                idx = (idx // 26) - 1
-            return res
+        get_col_letter = column_letter
 
         chips_sub_layout = QVBoxLayout()
         chips_sub_layout.setSpacing(6)
@@ -834,12 +906,7 @@ class ColumnConcatWidget(QWidget):
         self.compute_and_render()
 
     def update_sequence_label(self):
-        def get_col_letter(idx):
-            res = ""
-            while idx >= 0:
-                res = chr((idx % 26) + 65) + res
-                idx = (idx // 26) - 1
-            return res
+        get_col_letter = column_letter
 
         if not self.selected_indices:
             self.lbl_seq_text.setText("선택된 컬럼이 없습니다.")
@@ -899,12 +966,7 @@ class ColumnConcatWidget(QWidget):
         prefix = self.txt_prefix.text()
         suffix = self.txt_suffix.text()
 
-        def get_col_letter(idx):
-            res = ""
-            while idx >= 0:
-                res = chr((idx % 26) + 65) + res
-                idx = (idx // 26) - 1
-            return res
+        get_col_letter = column_letter
 
         seen_results = set()
         results = []
@@ -934,12 +996,7 @@ class ColumnConcatWidget(QWidget):
         self.render_table()
 
     def render_table(self):
-        def get_col_letter(idx):
-            res = ""
-            while idx >= 0:
-                res = chr((idx % 26) + 65) + res
-                idx = (idx // 26) - 1
-            return res
+        get_col_letter = column_letter
 
         # Table headers: 0: 병합 결과 (Concat Output), 1..N: Original Source Columns
         headers = ["✨ 병합 결과 (Concat Output)"]
@@ -982,12 +1039,33 @@ class ColumnConcatWidget(QWidget):
     def filter_results(self):
         self.render_table()
 
+    def visible_results(self):
+        """검색어가 걸려 있으면 걸러진 결과만 돌려준다 (표에 보이는 것과 일치)."""
+        query = self.txt_search.text().strip().lower()
+        if not query:
+            return self.concat_results, False
+
+        filtered = [
+            res for res in self.concat_results
+            if query in res[1].lower()
+            or any(query in str(c).lower() for c in res[2])
+        ]
+        return filtered, True
+
     def auto_copy_results(self):
-        if self.concat_results:
-            text = "\n".join(item[1] for item in self.concat_results)
-            QApplication.clipboard().setText(text)
-            self.lbl_result_count.setText(f"🔗 병합 결과: {len(self.concat_results)}행 (📋 클립보드 자동 복사 완료!)")
-            ToastNotification.show_toast(self.window(), f"🔗 병합 결과 {len(self.concat_results)}행이 클립보드에 복사되었습니다!")
+        results, filtered = self.visible_results()
+        if not results:
+            return
+
+        QApplication.clipboard().setText("\n".join(item[1] for item in results))
+        suffix = " (검색 결과만)" if filtered else ""
+        self.lbl_result_count.setText(
+            f"🔗 병합 결과: {len(results)}행 (📋 클립보드 자동 복사 완료!){suffix}"
+        )
+        ToastNotification.show_toast(
+            self.window(),
+            f"🔗 병합 결과 {len(results)}행이 클립보드에 복사되었습니다!{suffix}"
+        )
 
     def read_from_clipboard(self):
         text = QApplication.clipboard().text()
@@ -1021,13 +1099,17 @@ class ColumnConcatWidget(QWidget):
         self.lbl_result_count.setText("🔗 병합 결과: 0행")
 
     def copy_results(self):
-        if not self.concat_results:
+        results, filtered = self.visible_results()
+        if not results:
             QMessageBox.warning(self, "경고", "복사할 병합 결과 데이터가 없습니다.")
             return
 
-        text = "\n".join(item[1] for item in self.concat_results)
-        QApplication.clipboard().setText(text)
-        ToastNotification.show_toast(self.window(), f"📋 병합 결과 {len(self.concat_results)}행이 클립보드에 복사되었습니다!")
+        QApplication.clipboard().setText("\n".join(item[1] for item in results))
+        suffix = " (검색 결과만)" if filtered else ""
+        ToastNotification.show_toast(
+            self.window(),
+            f"📋 병합 결과 {len(results)}행이 클립보드에 복사되었습니다!{suffix}"
+        )
 
 
 class TodoListWidget(QWidget):
@@ -1038,6 +1120,14 @@ class TodoListWidget(QWidget):
         self.current_filter = "today"
         self.init_ui()
         self.load_and_render()
+
+        # 저장 파일이 깨져서 복구/격리된 경우는 반드시 알려야 한다.
+        # 조용히 빈 목록을 보여주면 사용자는 할 일이 사라진 줄 안다.
+        if self.manager.load_error:
+            QTimer.singleShot(0, self._warn_load_error)
+
+    def _warn_load_error(self):
+        QMessageBox.warning(self, "할 일 데이터 안내", self.manager.load_error)
 
     def init_ui(self):
         main_layout = QVBoxLayout(self)
@@ -1394,27 +1484,28 @@ class SetAnalyzerGUI(QMainWindow):
         self.set_analyzer_widget = SetAnalyzerWidget()
         self.column_concat_widget = ColumnConcatWidget()
         self.todo_list_widget = TodoListWidget()
+        self.deid_widget = DeIdWidget()
 
         self.main_tab_widget.addTab(self.todo_list_widget, "📝 스마트 Todo List (F1)")
         self.main_tab_widget.addTab(self.set_analyzer_widget, "📊 엑셀 집합 분석 (F2)")
         self.main_tab_widget.addTab(self.column_concat_widget, "🔗 컬럼 Concat / SQL 쿼리 생성기 (F3)")
+        self.main_tab_widget.addTab(self.deid_widget, "🛡️ 개인정보 비식별화 (F4)")
 
-        # Keyboard Shortcuts: F1 -> Tab 0 (Todo), F2 -> Tab 1 (Set Analyzer), F3 -> Tab 2 (Concat)
-        self.shortcut_f1 = QShortcut(QKeySequence("F1"), self)
-        self.shortcut_f1.activated.connect(lambda: self.main_tab_widget.setCurrentIndex(0))
+        # Keyboard Shortcuts: F1..F4 -> tabs, F5 -> refresh Todo List
+        for key, index in (("F1", 0), ("F2", 1), ("F3", 2), ("F4", 3)):
+            shortcut = QShortcut(QKeySequence(key), self)
+            shortcut.activated.connect(
+                lambda idx=index: self.main_tab_widget.setCurrentIndex(idx)
+            )
 
-        self.shortcut_f2 = QShortcut(QKeySequence("F2"), self)
-        self.shortcut_f2.activated.connect(lambda: self.main_tab_widget.setCurrentIndex(1))
-
-        self.shortcut_f3 = QShortcut(QKeySequence("F3"), self)
-        self.shortcut_f3.activated.connect(lambda: self.main_tab_widget.setCurrentIndex(2))
-
-        # F5 -> Refresh Todo List
         self.shortcut_f5 = QShortcut(QKeySequence("F5"), self)
         self.shortcut_f5.activated.connect(lambda: self.todo_list_widget.load_and_render())
 
     def closeEvent(self, event):
-        # 윈도우 상단 우측 표준 [X] 버튼 클릭 시 깔끔하게 즉시 종료
+        # 윈도우 상단 우측 표준 [X] 버튼 클릭 시 깔끔하게 즉시 종료.
+        # 비식별화 워커가 돌고 있으면 먼저 정리한다 (스레드가 살아있는 채로
+        # 프로세스를 내리면 Qt가 abort 를 낸다).
+        self.deid_widget.shutdown()
         event.accept()
         QApplication.quit()
 
@@ -1535,6 +1626,7 @@ class AppSplashScreen(QSplashScreen):
 
 def run_gui():
     app = QApplication(sys.argv)
+    install_exception_hook()
 
     # Launch Splash Screen (force foreground popup)
     splash = AppSplashScreen()
@@ -1542,21 +1634,15 @@ def run_gui():
     splash.raise_()
     splash.activateWindow()
 
-    steps = [
-        (20, "코어 분석 엔진 및 패키지 로딩 중..."),
-        (45, "PySide6 GUI 컴포넌트 구성 중..."),
-        (70, "클립보드 및 집합 연산 엔진 준비 중..."),
-        (90, "샘플 데이터 및 테마 초기화 중..."),
-        (100, "준비 완료! 메인 화면으로 이동합니다.")
-    ]
-
-    for progress, msg in steps:
-        splash.set_progress(progress, msg)
-        for _ in range(4):
-            QApplication.processEvents()
-            time.sleep(0.04)
+    # 진행률은 '실제로' 일어나는 일에 맞춘다.
+    # (예전에는 time.sleep() 으로 0.8초를 그냥 버리면서 가짜 진행률을 그렸다.)
+    splash.set_progress(15, "코어 분석 엔진 및 패키지 로딩 중...")
+    splash.set_progress(40, "GUI 컴포넌트 구성 중...")
 
     window = SetAnalyzerGUI()
+
+    splash.set_progress(90, "테마 및 단축키 초기화 중...")
+    splash.set_progress(100, "준비 완료! 메인 화면으로 이동합니다.")
     # Bring main window to absolute front of screen on launch
     window.setWindowFlags(window.windowFlags() | Qt.WindowStaysOnTopHint)
     window.show()

@@ -1,0 +1,21 @@
+date_shift_days: -1000
+
+mask_name: true
+mask_patient_id: true
+mask_rrn: true
+mask_phone: true
+mask_address: true
+mask_email: true
+mask_doctor: true
+shift_date: true
+
+# 자유 텍스트 열(비고/메모 등)에 섞인 전화/주민/이메일 마스킹
+mask_free_text: true
+
+replace_hospital: true
+replace_doctor: true
+
+# 등록번호 zero-padding 자릿수 (0이면 사용 안 함, 예: 8 -> "12345"를 "00012345"로)
+id_zero_pad: 0
+
+output_suffix: "_deid"

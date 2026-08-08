@@ -1,15 +1,19 @@
-# 💻 엑셀 집합 분석 & 컬럼 Concat / SQL 쿼리 생성 윈도우 데스크톱 프로그램 (ExcelSetAnalyzer)
+# 💻 Work Helper — 엑셀 집합 분석 / 컬럼 Concat / SQL 생성 / 개인정보 비식별화
 
 > **⚠️ 본 프로젝트는 PySide6(Qt for Python) 기반의 100% 윈도우 데스크톱 GUI 프로그램 (.exe)입니다.**
 > 엑셀에서 복사(`Ctrl+C`)한 클립보드 데이터를 붙여넣어(`Ctrl+V`) 집합 비교, 컬럼 병합(Concat), SQL 쿼리 자동 생성을 1초 만에 수행하고 결과를 엑셀 및 DB 툴로 원클릭 복사할 수 있는 업무 자동화 최적화 프로그램입니다.
+> 여기에 **의료 엑셀 개인정보 비식별화(HKDeID)** 탭이 더해져, 원본 구조를 깨지 않고 개인정보만 안전하게 처리한 뒤 LLM·동료에게 넘길 수 있습니다.
 
 ---
 
 ## 🌟 핵심 기능 (Key Features)
 
-### 1. ⌨️ 키보드 직관 탭 전환 단축키 (`F1`, `F2`)
-- **`F1` 키**: `📊 엑셀 집합 분석 (F1)` 탭으로 즉시 이동
-- **`F2` 키**: `🔗 컬럼 Concat / SQL 쿼리 생성기 (F2)` 탭으로 즉시 이동
+### 1. ⌨️ 키보드 직관 탭 전환 단축키 (`F1`~`F4`)
+- **`F1`**: `📝 스마트 Todo List`
+- **`F2`**: `📊 엑셀 집합 분석`
+- **`F3`**: `🔗 컬럼 Concat / SQL 쿼리 생성기`
+- **`F4`**: `🛡️ 개인정보 비식별화`
+- **`F5`**: Todo List 새로고침
 
 ### 2. 🚀 시작 로딩 스플래시 화면 & 최상단 강제 팝업 (Splash Screen)
 - **로딩 프로그래스 바 (0%~100%)**: 프로그램 실행 시 세련된 다크 테마의 로딩 화면이 나타나 초기화 진행률을 실시간 표시.
@@ -51,6 +55,40 @@
 - **다양한 필터 & 카테고리/검색어 지원**: `📅 오늘 할 일`, `🔄 이월된 항목`, `⏳ 미완료`, `✅ 완료됨`, `📋 전체` 탭 필터와 카테고리(업무, 개인, 공부, 기타) 및 검색 지원.
 - **⚡ 다음날 시뮬레이션 버튼**: 다음날 앱을 실행했을 때의 자동 이월 기능을 즉시 테스트할 수 있는 검증용 시뮬레이터 제공.
 
+### 8. 🛡️ 의료 엑셀 개인정보 비식별화 (De-identification 탭 - `F4`)
+
+[HKDeID](https://github.com/gatsjy/HKDeID) 엔진을 그대로 내장했습니다. **원본 시트·헤더·서식·수식은 건드리지 않고 개인정보가 담긴 셀 값만** 바꾸므로, 비식별화 이후에도 통계 로직이 그대로 동작합니다.
+
+- **헤더 자동 탐지**: 제목·조회기간 행을 건너뛰고 진짜 헤더를 찾습니다. `"H.P"`, `"h_p"`, `"PHONE"`을 모두 전화번호로 인식합니다.
+- **🔍 미리보기(dry-run)**: 파일을 만들기 전에 어떤 열이 개인정보로 잡히는지 먼저 확인합니다.
+- **탐지 실패 시 경고**: 개인정보 열을 하나도 못 찾으면 조용히 "성공"하지 않고 **경고 팝업**을 띄웁니다. 안 가려진 파일을 안전하다고 믿고 외부에 내보내는 것이 가장 위험한 실패이기 때문입니다.
+- **백그라운드 실행 + 취소**: 수만 행 워크북에서도 창이 얼지 않으며, 언제든 취소할 수 있습니다.
+- **시트 간 / 파일 간 일관성**: 같은 환자는 항상 같은 가명(HMAC-SHA256)이 되어 여러 시트를 대조하는 통계가 유지됩니다.
+- **날짜 이동**: 모든 날짜를 같은 오프셋만큼 옮겨 재원일수·방문 간격 같은 시간 관계를 보존합니다.
+- **원본 덮어쓰기 차단**: 결과를 원본 경로에 저장하려 하면 거부합니다.
+
+| 항목 | 방식 | 예시 |
+|------|------|------|
+| 환자명 | 가명 | `홍길동` → `PATIENT_4D8347C8` |
+| 등록번호(MRN) | 가명 | `123456` → `MRN_CF85D154` |
+| 의료진 | 가명 | `박영수` → `DOC_A636AB74` |
+| 주민등록번호 | 부분 마스킹 | `900101-1234567` → `900101-*******` |
+| 전화번호 | 부분 마스킹 | `010-1234-5678` → `010-****-5678` |
+| 주소 | 시/도+시/군/구만 | `서울특별시 강남구 …` → `서울특별시 강남구 ****` |
+| 이메일 | 부분 마스킹 | `hong@naver.com` → `h****@naver.com` |
+| 날짜 | 고정 오프셋 이동 | 간격 보존 |
+| 자유 텍스트 | 섞인 PII 마스킹 | `보호자 010-1234-5678` → `보호자 010-****-5678` |
+
+#### 🔑 비밀키 관리 (중요)
+
+가명은 `HMAC(비밀키, 정규화된 값)`입니다. **같은 키 → 같은 가명**이므로 서로 다른 파일에서도 같은 환자를 이어붙일 수 있습니다.
+
+- 키 위치: 소스 실행 시 저장소 루트, `.exe` 실행 시 **exe와 같은 폴더**의 `.secret.key` (탭 하단에 실제 경로가 표시됩니다)
+- **키를 잃으면 이전 가명을 재현할 수 없습니다.** 안전한 곳에 백업하세요.
+- **키는 비밀입니다.** `.gitignore`에 등록되어 있으며, 절대 커밋·공유하지 마세요.
+
+> ⚠️ **면책**: 자동 보조 도구이며 인증된 비식별화 제품이 아닙니다. 결과물을 공유하기 전에 반드시 직접 확인하고, 소속 기관 및 관할 법규(개인정보보호법 등) 요건 충족 여부를 확인할 책임은 사용자에게 있습니다.
+
 ---
 
 ## 💻 실행 방법 (Getting Started)
@@ -64,19 +102,55 @@ dist/ExcelSetAnalyzer.exe
 
 ### 2. 파이썬 소스로 실행 (개발자용)
 ```bash
+pip install -r requirements.txt
+```
+```bash
 python gui.py
+```
+
+---
+
+## 🧪 테스트
+
+```bash
+python -m pytest -q
+```
+
+집합 연산, 클립보드 파싱(콤마 포함 값 보존·구분자 추정), Todo 저장 안전성과 이월 정확도, 비식별화 어댑터(키 안정성·가명 일관성·안전장치)를 검증합니다.
+
+---
+
+## 🗂 프로젝트 구조
+
+```text
+gui.py                 # 진입점 + 탭 3종 (Todo / 집합분석 / Concat)
+deid_widget.py         # 🛡️ 비식별화 탭 UI (QThread 워커)
+deid_service.py        # HKDeID 어댑터 — 키 경로 고정, 진행률/취소, 결과 리포트
+clipboard_parser.py    # 붙여넣기 표 파싱 (두 탭 공용)
+excel_processor.py     # 집합 연산 엔진 + 엑셀 리포트 내보내기
+todo_manager.py        # Todo 저장소 (원자적 저장 + 손상 복구)
+hkdeid/                # HKDeID 패키지 (원본 그대로 vendored)
+configs/               # HKDeID 기본 설정 및 컬럼 별칭 예시
+test_*.py              # pytest 테스트
 ```
 
 ---
 
 ## 🛠️ 개발 환경 및 빌드 (Build Instructions)
 
-- **개발 언어**: Python 3.11+
+- **개발 언어**: Python 3.10+
 - **GUI 프레임워크**: PySide6 (Qt for Python)
-- **데이터 연산 엔진**: pandas, openpyxl
+- **데이터 연산 엔진**: pandas, openpyxl, PyYAML
 - **패키징 툴**: PyInstaller
 
 ### .exe 재빌드 커맨드
+
+`configs/`는 런타임에 읽는 데이터 파일이므로 `--add-data`로 함께 넣어야 합니다.
+
 ```bash
-pyinstaller --noconsole --onefile --name "ExcelSetAnalyzer" --exclude-module matplotlib --exclude-module PIL --exclude-module Pillow --exclude-module sqlalchemy --exclude-module psycopg2 --exclude-module lxml --exclude-module scipy --exclude-module paramiko --exclude-module cryptography --exclude-module tkinter --exclude-module PySide6.QtWebEngineCore --exclude-module PySide6.Qt3DAnimation --exclude-module PySide6.QtDesigner --exclude-module PySide6.QtQuick --exclude-module PySide6.QtQml --exclude-module PySide6.QtSql --exclude-module PySide6.QtTest --exclude-module PySide6.QtMultimedia gui.py
+pyinstaller --noconsole --onefile --name "ExcelSetAnalyzer" --add-data "configs;configs" --collect-submodules hkdeid --exclude-module matplotlib --exclude-module PIL --exclude-module Pillow --exclude-module sqlalchemy --exclude-module psycopg2 --exclude-module scipy --exclude-module paramiko --exclude-module tkinter --exclude-module PySide6.QtWebEngineCore --exclude-module PySide6.Qt3DAnimation --exclude-module PySide6.QtDesigner --exclude-module PySide6.QtQuick --exclude-module PySide6.QtQml --exclude-module PySide6.QtSql --exclude-module PySide6.QtTest --exclude-module PySide6.QtMultimedia gui.py
 ```
+
+> `lxml`과 `cryptography`는 제외 목록에서 뺐습니다. openpyxl이 상황에 따라 `lxml`을 사용하므로 무조건 제외하면 비식별화 경로에서 실패할 수 있습니다.
+>
+> `dist/`는 더 이상 git에 커밋하지 않습니다(`.gitignore`). 실행 파일 배포는 GitHub Releases를 이용하세요 — 이전에는 exe+zip 약 147MB가 리포지토리에 들어 있었고 빌드할 때마다 히스토리에 사본이 쌓였습니다.

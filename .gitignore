@@ -15,6 +15,23 @@ build/
 
 # Test files & outputs
 test_output_report.xlsx
+.pytest_cache/
 .DS_Store
 .vscode/
 .idea/
+
+# 🔴 가명처리 비밀키 — 절대 커밋 금지.
+# 이 키 + 후보 값(이름 등)이 있으면 특정 가명과 일치하는지 확인할 수 있다.
+.secret.key
+*.secret.key
+
+# 비식별화 입출력 (환자 데이터가 들어있을 수 있다)
+*_deid.xlsx
+
+# 사용자 정의 컬럼 별칭 (병원별 설정)
+configs/aliases.yaml
+
+# 빌드 산출물 — 리포지토리에 커밋하지 않는다.
+# dist/ 의 exe+zip 이 약 147MB 였고, 빌드할 때마다 히스토리에 새 사본이 쌓인다.
+# 배포는 GitHub Releases 로 하는 것이 맞다.
+dist/

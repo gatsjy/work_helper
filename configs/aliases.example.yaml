@@ -1,0 +1,27 @@
+# HKDeID 사용자 정의 컬럼 별칭 (예시)
+#
+# 이 파일을 `configs/aliases.yaml` 로 복사하면 HKDeID가 자동으로 읽어
+# 내장 별칭에 '추가'합니다. 내장 별칭을 대체하지 않으므로, 병원마다
+# 추가로 인식시키고 싶은 헤더만 나열하면 됩니다.
+#
+# 카테고리:
+#   patient_name / patient_id / phone / rrn / address / email
+#   department / doctor_id / doctor_name / date
+#
+# 매칭은 표기 차이(대소문자, 공백, . _ - )를 무시합니다.
+
+doctor_name:
+  - 보조의사4
+  - 마취의
+  - 마취과의사
+
+department:
+  - 마취과
+  - 협진과
+
+date:
+  - 마취시작일시
+  - 마취종료일시
+
+patient_id:
+  - 병원등록번호

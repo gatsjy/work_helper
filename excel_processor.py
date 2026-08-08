@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 import os
-import io
-from typing import Dict, List, Any, Tuple, Optional
-import pandas as pd
-import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
+from typing import Dict, List, Any, Optional
+
+from clipboard_parser import parse_rows
+
+# pandas / openpyxl 은 파일 기반 기능(analyze_sets, export_excel_report)에서만
+# 쓴다. 클립보드 경로는 이제 순수 파이썬이라, 무거운 import 를 실제로 필요한
+# 순간까지 미룬다. (기동 시간 + exe 크기)
+
 
 class ExcelSetProcessor:
     """
@@ -14,11 +16,13 @@ class ExcelSetProcessor:
     """
 
     def __init__(self, file_path: str):
+        import pandas as pd
+
         self.file_path = file_path
         self.filename = os.path.basename(file_path)
         self.ext = os.path.splitext(file_path)[1].lower()
         self._excel_file = None
-        
+
         if self.ext in ['.xlsx', '.xls']:
             self._excel_file = pd.ExcelFile(file_path, engine='openpyxl' if self.ext == '.xlsx' else None)
 
@@ -35,8 +39,10 @@ class ExcelSetProcessor:
         df = self.load_dataframe(sheet_name, nrows=5)
         return list(df.columns)
 
-    def load_dataframe(self, sheet_name: str, nrows: Optional[int] = None) -> pd.DataFrame:
+    def load_dataframe(self, sheet_name: str, nrows: Optional[int] = None):
         """데이터프레임 로드"""
+        import pandas as pd
+
         if self.ext == '.csv':
             try:
                 df = pd.read_csv(self.file_path, nrows=nrows, encoding='utf-8-sig')
@@ -60,23 +66,14 @@ class ExcelSetProcessor:
         trim_space: bool = True,
         drop_empty: bool = True
     ) -> Dict[str, Any]:
-        """클립보드 텍스트 데이터를 직접 받아 집합 연산을 수행"""
-        def parse_lines(text: str):
-            if not text or not text.strip():
-                return []
-            lines = [l for l in text.splitlines() if l.strip()]
-            if not lines:
-                return []
-            first = lines[0]
-            sep = '\t' if '\t' in first else (',' if ',' in first else None)
-            if sep:
-                return [l.split(sep) for l in lines]
-            else:
-                import re
-                return [re.split(r'\s{2,}', l) for l in lines]
+        """클립보드 텍스트 데이터를 직접 받아 집합 연산을 수행.
 
-        rows_a = parse_lines(raw_text_a)
-        rows_b = parse_lines(raw_text_b)
+        pandas를 쓰지 않는다. 이 경로는 타이핑할 때마다 호출되는 데다,
+        여기서 pandas가 필요한 건 pd.isna() 하나뿐이었다. import 하나 때문에
+        exe 크기와 기동 시간을 낼 이유가 없다.
+        """
+        rows_a = parse_rows(raw_text_a)
+        rows_b = parse_rows(raw_text_b)
 
         name_a = "데이터 A"
         if has_header_a and rows_a:
@@ -91,7 +88,7 @@ class ExcelSetProcessor:
             rows_b = rows_b[1:]
 
         def normalize_val(val: Any) -> str:
-            if pd.isna(val) or val is None:
+            if val is None:
                 return ""
             s = str(val)
             if trim_space:
@@ -204,6 +201,8 @@ class ExcelSetProcessor:
         include_extra_cols: bool = True
     ) -> Dict[str, Any]:
         """두 컬럼 집합 비교 연산 수행"""
+        import pandas as pd
+
         if not sheet_b:
             sheet_b = sheet_a
         if not col_b:
@@ -336,6 +335,10 @@ class ExcelSetProcessor:
 
     def export_excel_report(self, analysis_result: Dict[str, Any], output_path: str):
         """서식이 적용된 멀티시트 Excel 파일 내보내기"""
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
+
         wb = openpyxl.Workbook()
         wb.remove(wb.active)
 
